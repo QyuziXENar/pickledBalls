@@ -1,121 +1,146 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import '../widgets/ambient_background.dart';
-import '../widgets/game_components.dart';
+import '../widgets/asset_helpers.dart';
 import 'lobby_screen.dart';
-import 'settings_screen.dart';
 
-class WelcomeScreen extends StatelessWidget {
+// ============================================================================
+// CLASH ROYALE STYLE TITLE & PROGRESS LOADING SCREEN
+// ============================================================================
+
+class WelcomeScreen extends StatefulWidget {
   const WelcomeScreen({super.key});
 
-  void _showExitConfirmation(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF14221C),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
-        title: const Text('Exit Paddle Blitz?', style: TextStyle(fontWeight: FontWeight.bold)),
-        content: const Text(
-          'Are you sure you want to shut down court operations and exit?',
-          style: TextStyle(color: AppTheme.textMuted),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel', style: TextStyle(color: Colors.white70)),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFFFF4D4D),
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            ),
-            onPressed: () {
-              Navigator.pop(ctx);
-              SystemNavigator.pop();
-            },
-            child: const Text('Exit Game'),
-          ),
-        ],
-      ),
+  @override
+  State<WelcomeScreen> createState() => _WelcomeScreenState();
+}
+
+class _WelcomeScreenState extends State<WelcomeScreen>
+    with SingleTickerProviderStateMixin {
+  double _loadProgress = 0.0;
+  bool _isReady = false;
+  Timer? _progressTimer;
+
+  int _tipIndex = 0;
+  static const List<String> _pickleballTips = [
+    'Tip: The serve and return must both bounce before you can volley!',
+    'Tip: Stepping into the Kitchen on an air volley is an automatic fault.',
+    'Tip: Right-click or tap SMASH when the ball is high for maximum velocity.',
+    'Tip: Build your rally streak to fill your Blitz Meter to 100%!',
+    'Tip: Different athletes have unique sprint speeds and power ratings.',
+  ];
+
+  late AnimationController _pulseController;
+  late Animation<double> _pulseAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+
+    // Pulsing "TAP TO START" text
+    _pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
+    )..repeat(reverse: true);
+
+    _pulseAnimation = Tween<double>(begin: 0.35, end: 1.0).animate(
+      CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
     );
+
+    // Simulated Clash Royale 0% -> 100% Loading Bar
+    _progressTimer = Timer.periodic(const Duration(milliseconds: 30), (timer) {
+      setState(() {
+        _loadProgress += 0.015;
+        if (_loadProgress >= 0.5 && _tipIndex == 0) {
+          _tipIndex = 1; // Cycle tip midway
+        }
+        if (_loadProgress >= 1.0) {
+          _loadProgress = 1.0;
+          _isReady = true;
+          _progressTimer?.cancel();
+          AppAudio.play(context, 'clash_start_jingle.mp3', 'Clash Trumpet Start Jingle');
+        }
+      });
+    });
   }
 
-  void _openHowToPlay(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => const HowToPlaySheet(),
+  @override
+  void dispose() {
+    _progressTimer?.cancel();
+    _pulseController.dispose();
+    super.dispose();
+  }
+
+  void _onScreenTapped() {
+    if (!_isReady) return;
+
+    Navigator.pushReplacement(
+      context,
+      PageRouteBuilder(
+        pageBuilder: (_, _, _) => const LobbyScreen(),
+        transitionDuration: const Duration(milliseconds: 400),
+        transitionsBuilder: (_, animation, _, child) =>
+            FadeTransition(opacity: animation, child: child),
+      ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: AmbientCourtBackground(
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 420),
+    return GestureDetector(
+      onTap: _onScreenTapped,
+      behavior: HitTestBehavior.opaque,
+      child: Scaffold(
+        body: AmbientCourtBackground(
+          child: SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
               child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  // Logo
-                  Stack(
-                    alignment: Alignment.center,
-                    children: [
-                      Container(
-                        width: 120,
-                        height: 120,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          boxShadow: [
-                            BoxShadow(
-                              color: AppTheme.opticYellow.withValues(alpha: 0.35),
-                              blurRadius: 36,
-                              spreadRadius: 4,
-                            ),
-                          ],
-                        ),
-                      ),
-                      Container(
-                        width: 100,
-                        height: 100,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: const Color(0xFF10281F),
-                          border: Border.all(color: AppTheme.opticYellow, width: 2.5),
-                        ),
-                        child: const Icon(
-                          Icons.sports_tennis_rounded,
-                          size: 50,
-                          color: AppTheme.opticYellow,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 30),
+                  const Spacer(flex: 2),
 
-                  // Brand Titles
+                  // Game Logo: Tries PNG file first, falls back to 3D badge
+                  AppAssetImage(
+                    assetPath: 'lib/assets/images/logos/game_logo.png',
+                    width: 140,
+                    height: 140,
+                    fallback: Container(
+                      width: 110,
+                      height: 110,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: const Color(0xFF0E2E23),
+                        border: Border.all(color: AppTheme.opticYellow, width: 3.5),
+                        boxShadow: [
+                          BoxShadow(
+                            color: AppTheme.opticYellow.withValues(alpha: 0.35),
+                            blurRadius: 36,
+                            spreadRadius: 2,
+                          ),
+                        ],
+                      ),
+                      child: const Icon(
+                        Icons.sports_tennis_rounded,
+                        size: 56,
+                        color: AppTheme.opticYellow,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+
+                  // 3D Game Title
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                         decoration: BoxDecoration(
                           color: AppTheme.opticYellow,
-                          borderRadius: BorderRadius.circular(8),
+                          borderRadius: BorderRadius.circular(6),
                         ),
                         child: const Text(
-                          '2.0 PRO',
-                          style: TextStyle(
-                            color: Colors.black,
-                            fontSize: 10,
-                            fontWeight: FontWeight.w900,
-                            letterSpacing: 1.5,
-                          ),
+                          '2.0',
+                          style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: Colors.black),
                         ),
                       ),
                       const SizedBox(width: 8),
@@ -130,155 +155,90 @@ class WelcomeScreen extends StatelessWidget {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 6),
                   const Text(
                     'Precision Dinks. Electric Volleys.',
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: AppTheme.textMuted,
-                      letterSpacing: 1.1,
-                      fontWeight: FontWeight.w500,
-                    ),
+                    style: TextStyle(fontSize: 13, color: AppTheme.textMuted, letterSpacing: 1.0),
                   ),
-                  const SizedBox(height: 48),
 
-                  // START BUTTON
-                  BouncyButton(
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(builder: (_) => const LobbyScreen()),
-                      );
-                    },
-                    child: Container(
-                      width: double.infinity,
-                      height: 60,
-                      decoration: BoxDecoration(
-                        gradient: const LinearGradient(
-                          colors: [AppTheme.opticYellow, Color(0xFFA6C200)],
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
+                  const Spacer(flex: 3),
+
+                  // BOTTOM SECTION: Clash Royale Loading Bar OR "Tap Anywhere"
+                  if (!_isReady) ...[
+                    // Pro Pickleball Tip
+                    AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 300),
+                      child: Text(
+                        _pickleballTips[_tipIndex],
+                        key: ValueKey<int>(_tipIndex),
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Colors.white70,
+                          fontStyle: FontStyle.italic,
                         ),
-                        borderRadius: BorderRadius.circular(18),
-                        boxShadow: [
-                          BoxShadow(
-                            color: AppTheme.opticYellow.withValues(alpha: 0.35),
-                            blurRadius: 20,
-                            offset: const Offset(0, 8),
-                          ),
-                        ],
                       ),
-                      child: const Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
+                    ),
+                    const SizedBox(height: 16),
+
+                    // Progress Bar Container
+                    Container(
+                      width: double.infinity,
+                      height: 22,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF0F1B16),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.white24, width: 1.5),
+                      ),
+                      child: Stack(
+                        alignment: Alignment.center,
                         children: [
-                          Icon(Icons.play_arrow_rounded, color: Colors.black, size: 30),
-                          SizedBox(width: 10),
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(10),
+                            child: LinearProgressIndicator(
+                              value: _loadProgress,
+                              minHeight: 22,
+                              backgroundColor: Colors.transparent,
+                              valueColor: const AlwaysStoppedAnimation(Color(0xFF00E676)),
+                            ),
+                          ),
                           Text(
-                            'ENTER LOBBY',
-                            style: TextStyle(
-                              color: Colors.black,
-                              fontSize: 16,
+                            '${(_loadProgress * 100).toInt()}%',
+                            style: const TextStyle(
+                              fontSize: 11,
                               fontWeight: FontWeight.w900,
-                              letterSpacing: 1.2,
+                              color: Colors.black,
                             ),
                           ),
                         ],
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 16),
-
-                  // HOW TO PLAY BUTTON
-                  BouncyButton(
-                    onTap: () => _openHowToPlay(context),
-                    child: Container(
-                      width: double.infinity,
-                      height: 54,
-                      decoration: BoxDecoration(
-                        color: AppTheme.glassFill,
-                        borderRadius: BorderRadius.circular(18),
-                        border: Border.all(color: AppTheme.glassBorder),
-                      ),
-                      child: const Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
+                  ] else ...[
+                    // Ready: Pulsing "Tap to Start"
+                    FadeTransition(
+                      opacity: _pulseAnimation,
+                      child: Column(
                         children: [
-                          Icon(Icons.menu_book_rounded, color: AppTheme.mintAccent, size: 20),
-                          SizedBox(width: 10),
-                          Text(
-                            'HOW TO PLAY',
+                          const Text(
+                            'TAP ANYWHERE TO ENTER',
                             style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 14,
-                              fontWeight: FontWeight.bold,
-                              letterSpacing: 1.0,
+                              fontSize: 17,
+                              fontWeight: FontWeight.w900,
+                              color: AppTheme.opticYellow,
+                              letterSpacing: 2.0,
                             ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            'Touch anywhere on screen to step onto the court',
+                            style: TextStyle(fontSize: 11, color: Colors.white.withValues(alpha: 0.5)),
                           ),
                         ],
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 16),
+                  ],
 
-                  // SETTINGS & EXIT ROW
-                  Row(
-                    children: [
-                      Expanded(
-                        child: BouncyButton(
-                          onTap: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(builder: (_) => const SettingsScreen()),
-                            );
-                          },
-                          child: Container(
-                            height: 50,
-                            decoration: BoxDecoration(
-                              color: AppTheme.glassFill,
-                              borderRadius: BorderRadius.circular(16),
-                              border: Border.all(color: AppTheme.glassBorder),
-                            ),
-                            child: const Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(Icons.tune_rounded, color: Colors.white70, size: 18),
-                                SizedBox(width: 8),
-                                Text('SETTINGS', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: BouncyButton(
-                          onTap: () => _showExitConfirmation(context),
-                          child: Container(
-                            height: 50,
-                            decoration: BoxDecoration(
-                              color: const Color(0x26FF4D4D),
-                              borderRadius: BorderRadius.circular(16),
-                              border: Border.all(color: const Color(0x66FF4D4D)),
-                            ),
-                            child: const Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(Icons.power_settings_new_rounded, color: Color(0xFFFF6B6B), size: 18),
-                                SizedBox(width: 8),
-                                Text(
-                                  'EXIT',
-                                  style: TextStyle(
-                                    color: Color(0xFFFF6B6B),
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
+                  const SizedBox(height: 16),
                 ],
               ),
             ),

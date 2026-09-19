@@ -114,8 +114,8 @@ class CharacterModel {
 
 const List<CharacterModel> kCharacters = [
   CharacterModel(
-    id: 'alyx',
-    name: 'Alyx Vance',
+    id: 'aria',
+    name: 'Aria Vance',
     gender: 'Female',
     archetype: 'Speedster',
     moveSpeed: 1.32,

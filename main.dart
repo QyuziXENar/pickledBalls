@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'screens/welcome_screen.dart';
+import 'screens/company_intro_screen.dart';
 import 'widgets/ambient_background.dart';
- 
+
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   runApp(const PaddleBlitzApp());
@@ -25,7 +25,7 @@ class PaddleBlitzApp extends StatelessWidget {
           surface: AppTheme.deepGreen,
         ),
       ),
-      home: const WelcomeScreen(),
+      home: const CompanyIntroScreen(), // <-- Starts at CanZEd Intro!
     );
   }
 }

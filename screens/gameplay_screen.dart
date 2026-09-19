@@ -55,9 +55,7 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
   int _longestRally = 0;
   int _totalSmashes = 0;
 
-  // --------------------------------------------------------------------------
-  // TASK 5: UNLOCKED 3D PLAYER POSITIONING (X & Y FREEDOM)
-  // --------------------------------------------------------------------------
+  // 3D Player Positioning
   double _playerX = 0.0;
   double _playerTargetX = 0.0;
   double _playerVelocityX = 0.0;
@@ -250,7 +248,7 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
           _activeKeys.contains(LogicalKeyboardKey.arrowRight)) {
         _playerTargetX = (_playerTargetX + keySpeedX * dt).clamp(-0.92, 0.92);
       }
-      // Depth (Forward toward net / Backward to baseline)
+      // Depth
       if (_activeKeys.contains(LogicalKeyboardKey.keyW) ||
           _activeKeys.contains(LogicalKeyboardKey.arrowUp)) {
         _playerTargetY = (_playerTargetY + keySpeedY * dt).clamp(-0.18, 0.34);
@@ -311,13 +309,13 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
         _ballVz = -_ballVz * 0.78;
       }
 
-      // Net Check (Y = 0.50, Height Z = 0.42m)
+      // Net Collision Check (Y = 0.50, Height Z = 0.42m)
       if ((_ballY - 0.50).abs() < 0.03 && _ballZ < 0.42) {
         _pointEnded(playerWonPoint: _ballVy < 0, reason: 'NET FAULT');
         return;
       }
 
-      // Tactical AI Engine (Reacts dynamically to Player X and Y)
+      // Tactical AI Engine
       final aiChar = state.opponentCharacter;
       final aiMultiplier = state.difficulty.speedMultiplier;
       final oldAiX = _aiX;
@@ -336,7 +334,7 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
         }
       }
 
-      // Missed Ball Check
+      // Out of bounds / Missed Ball Check
       if (_ballY > 1.15) {
         _pointEnded(playerWonPoint: true, reason: 'WINNER');
       } else if (_ballY < -0.22) {
@@ -349,7 +347,6 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
     final rng = math.Random();
     _aiBlitzEnergy = (_aiBlitzEnergy + 0.22).clamp(0.0, 1.0);
 
-    // AI adapts based on whether the player has rushed forward or stayed deep!
     final playerIsDeep = _playerY < 0.05;
 
     if (_aiBlitzEnergy >= 1.0) {
@@ -369,7 +366,6 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
       _timingFeedback = '⚡ AI OVERHEAD SMASH!';
       _timingFeedbackColor = const Color(0xFFFF5252);
     } else if (playerIsDeep && rng.nextDouble() < 0.38 && _currentRally > 1) {
-      // AI Tactical Dink: Drops ball right over net when player is far back!
       _blitzActive = false;
       _ballVy = -0.48 * pace;
       _ballVz = 1.5;
@@ -377,7 +373,6 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
       _timingFeedback = '🎯 AI TACTICAL DINK!';
       _timingFeedbackColor = AppTheme.mintAccent;
     } else {
-      // Deep Drive
       _blitzActive = false;
       _ballVy = -0.74 * aiChar.swingPower * pace;
       _ballVz = 2.1;
@@ -385,9 +380,6 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
     }
   }
 
-  // --------------------------------------------------------------------------
-  // DYNAMIC RELATIVE STRIKE ZONE (Calculates from wherever player is standing!)
-  // --------------------------------------------------------------------------
   void _triggerPlayerSwing(ShotType type) {
     _playerIsSwinging = true;
     _playerSwingAngle = 0.1;
@@ -397,7 +389,6 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
     final paddle = state.selectedPaddle;
     final pace = state.gamePace;
 
-    // Relative strike distance from the player's current position (X & Y)
     final distY = (_ballY - _playerY).abs();
     final inStrikeZoneY = distY <= 0.19;
     final distX = (_ballX - _playerX).abs();
@@ -551,7 +542,7 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
     final state = GameState.instance;
 
     return Scaffold(
-      backgroundColor: const Color(0xFF07110D),
+      backgroundColor: const Color(0xFF070B09),
       body: SafeArea(
         child: LayoutBuilder(
           builder: (context, constraints) {
@@ -758,10 +749,7 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
                       ),
                     ),
 
-                  // ==========================================================
-                  // 7. TASK 4 & 5: 360 DEGREE MOBILE JOYSTICK CONTROLS
-                  // ==========================================================
-
+                  // 7. VIRTUAL CONTROLS
                   // A. LEFT THUMB: 360 DEGREE VIRTUAL JOYSTICK
                   Positioned(
                     bottom: 24,
@@ -783,7 +771,6 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
                         setState(() {
                           _joystickKnobOffset = clampedOffset;
                           _joystickInputX = clampedOffset.dx / _joystickRadius;
-                          // Upwards on screen moves character forward toward net
                           _joystickInputY = -clampedOffset.dy / _joystickRadius;
                         });
                       },
@@ -1027,12 +1014,12 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
 }
 
 // ============================================================================
-// CENTERED 3D COURT PAINTER WITH TASK 5 DYNAMIC PLAYER DEPTH POSITION
+// ELEVATED 3D COURT PAINTER WITH NON-LINEAR PERSPECTIVE DEPTH
 // ============================================================================
 
 class PerspectiveCourtPainter extends CustomPainter {
   final double playerX;
-  final double playerY; // <-- Dynamic Y depth
+  final double playerY;
   final double playerVelocityX;
   final double playerVelocityY;
   final double playerSwingAngle;
@@ -1085,26 +1072,38 @@ class PerspectiveCourtPainter extends CustomPainter {
     required this.courtVenue,
   });
 
+  // NON-LINEAR PINHOLE PERSPECTIVE CURVE
+  // Pushes the net to ~62% of vertical court pixels to match human visual perception!
+  double _perspectiveDepth(double y) {
+    final clampedY = y.clamp(-0.25, 1.05);
+    if (clampedY >= 0) {
+      return (clampedY * 1.65) / (1.0 + 0.65 * clampedY);
+    } else {
+      return clampedY * 1.65;
+    }
+  }
+
   Offset project3D(double x, double y, double z, Size size) {
     final centerX = size.width / 2;
-    final nearY = size.height * 0.77;
-    final farY = size.height * 0.24;
-    final nearWidth = math.min(size.width * 0.86, 520.0);
-    final farWidth = nearWidth * 0.52;
+    final nearY = size.height * 0.81;
+    final farY = size.height * 0.22;
+    final nearWidth = math.min(size.width * 0.90, 540.0);
+    final farWidth = nearWidth * 0.48;
 
-    final depth = y.clamp(-0.25, 1.0);
-    final courtWidthAtY = nearWidth + (farWidth - nearWidth) * depth;
-    final groundY = nearY + (farY - nearY) * depth;
+    final t = _perspectiveDepth(y);
+    final courtWidthAtY = nearWidth + (farWidth - nearWidth) * t;
+    final groundY = nearY + (farY - nearY) * t;
 
     final screenX = centerX + (x * (courtWidthAtY / 2));
-    final depthScale = 1.0 - (depth.clamp(0.0, 1.0) * 0.46);
+    final depthScale = (1.0 - (t.clamp(0.0, 1.0) * 0.50)).clamp(0.25, 1.0);
     final screenY = groundY - (z * 135.0 * depthScale);
 
     return Offset(screenX, screenY);
   }
 
   double getScale(double y) {
-    return 1.0 - (y.clamp(-0.2, 1.0) * 0.46);
+    final t = _perspectiveDepth(y);
+    return (1.0 - (t.clamp(0.0, 1.0) * 0.48)).clamp(0.40, 1.15);
   }
 
   @override
@@ -1117,80 +1116,89 @@ class PerspectiveCourtPainter extends CustomPainter {
 
     if (courtVenue == 'Midnight Stadium') {
       apronColor = const Color(0xFF070B10);
-      courtColor = const Color(0xFF0F1722);
-      kitchenColor = const Color(0xFF162130);
+      courtColor = const Color(0xFF0D1826);
+      kitchenColor = const Color(0xFF142438);
       lineCol = const Color(0xFF00E5FF);
       hasNeonGlow = true;
     } else if (courtVenue == 'Sunlit Beach') {
       apronColor = const Color(0xFFD4A373);
       courtColor = const Color(0xFF2A9D8F);
       kitchenColor = const Color(0xFF264653);
-      lineCol = const Color(0xFFFAEDCD);
+      lineCol = const Color(0xFFFFF7E6);
     } else {
       apronColor = const Color(0xFF102840);
-      courtColor = const Color(0xFF1F598C);
-      kitchenColor = const Color(0xFF173E63);
+      courtColor = const Color(0xFF1C5382);
+      kitchenColor = const Color(0xFF163E63);
       lineCol = Colors.white;
     }
 
-    // 1. Apron
-    final apronPath = Path()
-      ..moveTo(project3D(-1.35, -0.22, 0, size).dx, project3D(-1.35, -0.22, 0, size).dy)
-      ..lineTo(project3D(1.35, -0.22, 0, size).dx, project3D(1.35, -0.22, 0, size).dy)
-      ..lineTo(project3D(1.40, 1.05, 0, size).dx, project3D(1.40, 1.05, 0, size).dy - 10)
-      ..lineTo(project3D(-1.40, 1.05, 0, size).dx, project3D(-1.40, 1.05, 0, size).dy - 10)
-      ..close();
-    final apronPaint = Paint()..color = apronColor;
-    canvas.drawPath(apronPath, apronPaint);
+    // 0. STADIUM SURROUNDING & LED HOARDING BACKDROP
+    _drawStadiumAtmosphere(canvas, size, lineCol);
 
-    // 2. Playable In-Bounds Court
+    // 1. 3D SLAB DROP SHADOW & ELEVATION BEVEL
+    _draw3DCourtSlab(canvas, size, apronColor);
+
+    // 2. PLAYABLE COURT
     final courtPath = Path()
       ..moveTo(project3D(-1.0, 0.0, 0, size).dx, project3D(-1.0, 0.0, 0, size).dy)
       ..lineTo(project3D(1.0, 0.0, 0, size).dx, project3D(1.0, 0.0, 0, size).dy)
       ..lineTo(project3D(1.0, 1.0, 0, size).dx, project3D(1.0, 1.0, 0, size).dy)
       ..lineTo(project3D(-1.0, 1.0, 0, size).dx, project3D(-1.0, 1.0, 0, size).dy)
       ..close();
-    final courtPaint = Paint()..color = courtColor;
+
+    final courtBounds = courtPath.getBounds();
+    final courtPaint = Paint()
+      ..shader = LinearGradient(
+        colors: [
+          courtColor.withValues(alpha: 0.90),
+          courtColor,
+          courtColor.withValues(alpha: 0.85),
+        ],
+        begin: Alignment.bottomCenter,
+        end: Alignment.topCenter,
+      ).createShader(courtBounds);
     canvas.drawPath(courtPath, courtPaint);
 
-    // 3. Kitchen (NVZ)
+    // 3. KITCHEN (NON-VOLLEY ZONE)
     final kitchenPath = Path()
       ..moveTo(project3D(-1.0, 0.34, 0, size).dx, project3D(-1.0, 0.34, 0, size).dy)
       ..lineTo(project3D(1.0, 0.34, 0, size).dx, project3D(1.0, 0.34, 0, size).dy)
       ..lineTo(project3D(1.0, 0.66, 0, size).dx, project3D(1.0, 0.66, 0, size).dy)
       ..lineTo(project3D(-1.0, 0.66, 0, size).dx, project3D(-1.0, 0.66, 0, size).dy)
       ..close();
-    final kitchenPaint = Paint()..color = kitchenColor;
-    canvas.drawPath(kitchenPath, kitchenPaint);
+    canvas.drawPath(kitchenPath, Paint()..color = kitchenColor);
 
-    // 4. White Lines
+    // 4. CRISP REGULATION COURT LINES
     final linePaint = Paint()
-      ..color = lineCol.withValues(alpha: 0.90)
+      ..color = lineCol.withValues(alpha: 0.95)
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 2.5;
+      ..strokeWidth = 2.8;
 
     if (hasNeonGlow) {
       final glowPaint = Paint()
-        ..color = lineCol.withValues(alpha: 0.4)
+        ..color = lineCol.withValues(alpha: 0.45)
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 6.0
+        ..strokeWidth = 6.5
         ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8);
       canvas.drawPath(courtPath, glowPaint);
     }
 
     canvas.drawPath(courtPath, linePaint);
+
+    // Buffer Baseline behind player
     final bufferLinePaint = Paint()
       ..color = lineCol.withValues(alpha: 0.35)
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.5;
-    canvas.drawLine(project3D(-1.0, -0.20, 0, size), project3D(1.0, -0.20, 0, size), bufferLinePaint);
+      ..strokeWidth = 1.6;
+    canvas.drawLine(project3D(-1.0, -0.18, 0, size), project3D(1.0, -0.18, 0, size), bufferLinePaint);
 
+    // Kitchen & Center Service Lines
     canvas.drawLine(project3D(-1.0, 0.34, 0, size), project3D(1.0, 0.34, 0, size), linePaint);
     canvas.drawLine(project3D(-1.0, 0.66, 0, size), project3D(1.0, 0.66, 0, size), linePaint);
     canvas.drawLine(project3D(0.0, 0.0, 0, size), project3D(0.0, 0.34, 0, size), linePaint);
     canvas.drawLine(project3D(0.0, 0.66, 0, size), project3D(0.0, 1.0, 0, size), linePaint);
 
-    // 5. Opponent Rig
+    // 5. OPPONENT RIG
     _drawAnimatedCharacter(
       canvas: canvas,
       size: size,
@@ -1205,16 +1213,16 @@ class PerspectiveCourtPainter extends CustomPainter {
       isOpponent: true,
     );
 
-    // 6. Net Structure
-    _drawPerspectiveNet(canvas, size, lineCol);
+    // 6. 3D NET WITH CENTER SAG & FLOOR SHADOW
+    _draw3DPickleballNet(canvas, size, lineCol);
 
-    // 7. Ball Landing Reticle
+    // 7. BALL LANDING RETICLE
     _drawLandingReticle(canvas, size);
 
-    // 8. Ball & Shadow
+    // 8. BALL & 3D GROUND SHADOW
     _drawBallAndShadow(canvas, size);
 
-    // 9. Player Rig (Rendered dynamically at Player X and Player Y!)
+    // 9. PLAYER RIG
     _drawAnimatedCharacter(
       canvas: canvas,
       size: size,
@@ -1228,6 +1236,169 @@ class PerspectiveCourtPainter extends CustomPainter {
       paddleAccent: equippedPaddle.accentColor,
       isOpponent: false,
     );
+  }
+
+  void _drawStadiumAtmosphere(Canvas canvas, Size size, Color accentColor) {
+    // Top stadium LED ribbon hoarding behind far baseline
+    final pLeft = project3D(-1.40, 1.06, 0, size);
+    final pRight = project3D(1.40, 1.06, 0, size);
+
+    final hoardingHeight = 22.0;
+    final hoardingPath = Path()
+      ..moveTo(pLeft.dx, pLeft.dy)
+      ..lineTo(pRight.dx, pRight.dy)
+      ..lineTo(pRight.dx, pRight.dy - hoardingHeight)
+      ..lineTo(pLeft.dx, pLeft.dy - hoardingHeight)
+      ..close();
+
+    canvas.drawPath(
+      hoardingPath,
+      Paint()..color = const Color(0xFF05080C),
+    );
+
+    // Neon trim along ribbon top
+    canvas.drawLine(
+      Offset(pLeft.dx, pLeft.dy - hoardingHeight),
+      Offset(pRight.dx, pRight.dy - hoardingHeight),
+      Paint()
+        ..color = accentColor.withValues(alpha: 0.7)
+        ..strokeWidth = 2.0,
+    );
+  }
+
+  void _draw3DCourtSlab(Canvas canvas, Size size, Color apronColor) {
+    const bevelDrop = 10.0;
+
+    final pTopLeft = project3D(-1.35, 1.05, 0, size);
+    final pTopRight = project3D(1.40, 1.05, 0, size);
+    final pBottomRight = project3D(1.35, -0.22, 0, size);
+    final pBottomLeft = project3D(-1.35, -0.22, 0, size);
+
+    // Ambient drop shadow beneath the slab
+    final shadowPath = Path()
+      ..moveTo(pBottomLeft.dx, pBottomLeft.dy + bevelDrop + 6)
+      ..lineTo(pBottomRight.dx, pBottomRight.dy + bevelDrop + 6)
+      ..lineTo(pTopRight.dx, pTopRight.dy + 8)
+      ..lineTo(pTopLeft.dx, pTopLeft.dy + 8)
+      ..close();
+    canvas.drawPath(
+      shadowPath,
+      Paint()
+        ..color = Colors.black.withValues(alpha: 0.55)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 12),
+    );
+
+    // Front Thickness Bevel
+    final frontBevelPath = Path()
+      ..moveTo(pBottomLeft.dx, pBottomLeft.dy)
+      ..lineTo(pBottomRight.dx, pBottomRight.dy)
+      ..lineTo(pBottomRight.dx, pBottomRight.dy + bevelDrop)
+      ..lineTo(pBottomLeft.dx, pBottomLeft.dy + bevelDrop)
+      ..close();
+    canvas.drawPath(
+      frontBevelPath,
+      Paint()..color = apronColor.withValues(alpha: 0.65),
+    );
+
+    // Right Side Thickness Bevel
+    final sideBevelPath = Path()
+      ..moveTo(pBottomRight.dx, pBottomRight.dy)
+      ..lineTo(pTopRight.dx, pTopRight.dy)
+      ..lineTo(pTopRight.dx, pTopRight.dy + bevelDrop * 0.4)
+      ..lineTo(pBottomRight.dx, pBottomRight.dy + bevelDrop)
+      ..close();
+    canvas.drawPath(
+      sideBevelPath,
+      Paint()..color = apronColor.withValues(alpha: 0.45),
+    );
+
+    // Main Apron Floor Surface
+    final apronPath = Path()
+      ..moveTo(pBottomLeft.dx, pBottomLeft.dy)
+      ..lineTo(pBottomRight.dx, pBottomRight.dy)
+      ..lineTo(pTopRight.dx, pTopRight.dy)
+      ..lineTo(pTopLeft.dx, pTopLeft.dy)
+      ..close();
+    canvas.drawPath(apronPath, Paint()..color = apronColor);
+  }
+
+  void _draw3DPickleballNet(Canvas canvas, Size size, Color cordColor) {
+    const postHeightZ = 0.44; // 36 inches at posts
+    const centerDipZ = 0.40;  // 34 inches at center strap
+
+    final leftBase = project3D(-1.08, 0.5, 0.0, size);
+    final leftTop = project3D(-1.08, 0.5, postHeightZ, size);
+
+    final rightBase = project3D(1.08, 0.5, 0.0, size);
+    final rightTop = project3D(1.08, 0.5, postHeightZ, size);
+
+    final centerTop = project3D(0.0, 0.5, centerDipZ, size);
+    final centerBase = project3D(0.0, 0.5, 0.0, size);
+
+    // 1. Net Translucent Floor Shadow on Kitchen
+    final shadowFloorPath = Path()
+      ..moveTo(leftBase.dx, leftBase.dy - 3)
+      ..lineTo(rightBase.dx, rightBase.dy - 3)
+      ..lineTo(rightBase.dx, rightBase.dy + 8)
+      ..lineTo(leftBase.dx, leftBase.dy + 8)
+      ..close();
+    canvas.drawPath(
+      shadowFloorPath,
+      Paint()
+        ..color = Colors.black.withValues(alpha: 0.35)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4),
+    );
+
+    // 2. Net Mesh Surface (With subtle Sag Bézier Curve)
+    final meshPath = Path()
+      ..moveTo(leftBase.dx, leftBase.dy)
+      ..lineTo(rightBase.dx, rightBase.dy)
+      ..lineTo(rightTop.dx, rightTop.dy)
+      ..quadraticBezierTo(centerTop.dx, centerTop.dy, leftTop.dx, leftTop.dy)
+      ..close();
+
+    canvas.drawPath(
+      meshPath,
+      Paint()..color = cordColor.withValues(alpha: 0.30),
+    );
+
+    // 3. Top White Vinyl Net Tape (Bézier Sag)
+    final tapePath = Path()
+      ..moveTo(leftTop.dx, leftTop.dy)
+      ..quadraticBezierTo(centerTop.dx, centerTop.dy, rightTop.dx, rightTop.dy);
+
+    canvas.drawPath(
+      tapePath,
+      Paint()
+        ..color = Colors.white
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3.6,
+    );
+
+    // 4. Center Strap (Regulation 2-inch vertical white band)
+    canvas.drawLine(
+      centerTop,
+      centerBase,
+      Paint()
+        ..color = Colors.white.withValues(alpha: 0.90)
+        ..strokeWidth = 2.4,
+    );
+
+    // 5. 3D Metal Net Posts with Top Caps
+    final postPaint = Paint()
+      ..color = const Color(0xFF2C3E50)
+      ..strokeWidth = 5.0
+      ..strokeCap = StrokeCap.round;
+
+    final capPaint = Paint()
+      ..color = AppTheme.opticYellow
+      ..strokeWidth = 5.0
+      ..strokeCap = StrokeCap.round;
+
+    canvas.drawLine(leftBase, leftTop, postPaint);
+    canvas.drawLine(rightBase, rightTop, postPaint);
+    canvas.drawCircle(leftTop, 3.5, capPaint);
+    canvas.drawCircle(rightTop, 3.5, capPaint);
   }
 
   void _drawLandingReticle(Canvas canvas, Size size) {
@@ -1279,28 +1450,6 @@ class PerspectiveCourtPainter extends CustomPainter {
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1.5;
     canvas.drawLine(currentShadowPos, targetPos, pathPaint);
-  }
-
-  void _drawPerspectiveNet(Canvas canvas, Size size, Color cordColor) {
-    const netHeightZ = 0.44;
-    final leftBase = project3D(-1.08, 0.5, 0.0, size);
-    final leftTop = project3D(-1.08, 0.5, netHeightZ, size);
-    final rightBase = project3D(1.08, 0.5, 0.0, size);
-    final rightTop = project3D(1.08, 0.5, netHeightZ, size);
-
-    final meshPath = Path()
-      ..moveTo(leftBase.dx, leftBase.dy)
-      ..lineTo(rightBase.dx, rightBase.dy)
-      ..lineTo(rightTop.dx, rightTop.dy)
-      ..lineTo(leftTop.dx, leftTop.dy)
-      ..close();
-    final meshPaint = Paint()..color = cordColor.withValues(alpha: 0.28);
-    canvas.drawPath(meshPath, meshPaint);
-
-    canvas.drawLine(leftTop, rightTop, Paint()..color = cordColor..strokeWidth = 3.5);
-    final postPaint = Paint()..color = cordColor.withValues(alpha: 0.7)..strokeWidth = 4.0;
-    canvas.drawLine(leftBase, leftTop, postPaint);
-    canvas.drawLine(rightBase, rightTop, postPaint);
   }
 
   void _drawBallAndShadow(Canvas canvas, Size size) {
