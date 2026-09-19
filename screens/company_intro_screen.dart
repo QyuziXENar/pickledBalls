@@ -192,20 +192,31 @@ class _CompanyIntroScreenState extends State<CompanyIntroScreen>
   }
 
   // ==========================================================================
-  // STAGE 2: SOURCE-STYLE FLUTTER ENGINE LOGO (PROCEDURAL)
+  // STAGE 2: SOURCE-STYLE FLUTTER ENGINE LOGO (OFFICIAL BUILT-IN FLUTTER LOGO)
   // ==========================================================================
   Widget _buildFlutterEngineStage(BuildContext context) {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        CustomPaint(
-          size: const Size(120, 120),
-          painter: _FlutterEngineLogoPainter(),
-        ),
-        const SizedBox(height: 28),
-
+        // Official Flutter Logo with an industrial electric glow
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            boxShadow: [
+              BoxShadow(
+                color: const Color(0xFF0288D1).withValues(alpha: 0.40),
+                blurRadius: 50,
+                spreadRadius: 6,
+              ),
+            ],
+          ),
+          child: const FlutterLogo(size: 110),
+        ),
+        const SizedBox(height: 32),
+
+        // Valve "Source" style Typography Frame
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
           decoration: BoxDecoration(
             color: Colors.white.withValues(alpha: 0.04),
             borderRadius: BorderRadius.circular(8),
@@ -253,6 +264,8 @@ class _CompanyIntroScreenState extends State<CompanyIntroScreen>
     );
   }
 }
+
+
 
 // ============================================================================
 // PROCEDURAL FLUTTER CHEVRON LOGO PAINTER
