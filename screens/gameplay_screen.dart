@@ -22,6 +22,17 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
   late Ticker _ticker;
   Duration _lastElapsed = Duration.zero;
 
+  // Keyboard Controller
+  final FocusNode _keyboardFocusNode = FocusNode();
+  final Set<LogicalKeyboardKey> _activeKeys = {};
+
+  // Mobile Virtual Joystick State (Full 360 Degree Control)
+  Offset _joystickKnobOffset = Offset.zero;
+  bool _isJoystickActive = false;
+  double _joystickInputX = 0.0;
+  double _joystickInputY = 0.0;
+  static const double _joystickRadius = 45.0;
+
   // Match State
   MatchPhase _phase = MatchPhase.intro;
   double _phaseTimer = 0.0;
@@ -37,28 +48,34 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
   bool _blitzActive = false;
   Color _blitzTrailColor = Colors.transparent;
 
-  // Pickleball Rules & Stats
-  int _bouncesThisRally = 0;
-  bool _serveCompleted = false;
+  // Match Stats
   int _playerScore = 0;
   int _aiScore = 0;
   int _currentRally = 0;
   int _longestRally = 0;
   int _totalSmashes = 0;
 
-  // 3D Kinematics
+  // --------------------------------------------------------------------------
+  // TASK 5: UNLOCKED 3D PLAYER POSITIONING (X & Y FREEDOM)
+  // --------------------------------------------------------------------------
   double _playerX = 0.0;
   double _playerTargetX = 0.0;
   double _playerVelocityX = 0.0;
+
+  double _playerY = 0.0;
+  double _playerTargetY = 0.0;
+  double _playerVelocityY = 0.0;
+
   double _playerSwingAngle = 0.0;
   bool _playerIsSwinging = false;
 
+  // AI State
   double _aiX = 0.0;
   double _aiVelocityX = 0.0;
   double _aiSwingAngle = 0.0;
   bool _aiIsSwinging = false;
 
-  // Ball Coordinates
+  // Ball Coordinates & Velocities
   double _ballX = 0.0;
   double _ballY = 0.05;
   double _ballZ = 0.6;
@@ -74,12 +91,34 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
     super.initState();
     _startIntroSequence();
     _ticker = createTicker(_onGameTick)..start();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _keyboardFocusNode.requestFocus();
+    });
   }
 
   @override
   void dispose() {
     _ticker.dispose();
+    _keyboardFocusNode.dispose();
     super.dispose();
+  }
+
+  void _handleKeyEvent(KeyEvent event) {
+    if (event is KeyDownEvent) {
+      _activeKeys.add(event.logicalKey);
+
+      if (event.logicalKey == LogicalKeyboardKey.space ||
+          event.logicalKey == LogicalKeyboardKey.keyJ) {
+        _triggerPlayerSwing(ShotType.normal);
+      } else if (event.logicalKey == LogicalKeyboardKey.shiftLeft ||
+          event.logicalKey == LogicalKeyboardKey.shiftRight ||
+          event.logicalKey == LogicalKeyboardKey.keyK) {
+        _triggerPlayerSwing(ShotType.smash);
+      }
+    } else if (event is KeyUpEvent) {
+      _activeKeys.remove(event.logicalKey);
+    }
   }
 
   void _startIntroSequence() {
@@ -87,14 +126,14 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
       _phase = MatchPhase.intro;
       _toastMessage = _getMatchSituationBanner();
       _phaseTimer = 1.4;
-      _bouncesThisRally = 0;
-      _serveCompleted = false;
       _blitzActive = false;
       _resetBallPosition();
     });
   }
 
   void _resetBallPosition() {
+    _playerY = 0.0;
+    _playerTargetY = 0.0;
     _ballX = _playerServing ? _playerX : _aiX;
     _ballY = _playerServing ? 0.08 : 0.92;
     _ballZ = 0.65;
@@ -126,8 +165,6 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
       _phase = MatchPhase.activeRally;
       _toastMessage = '';
       _timingFeedback = '';
-      _bouncesThisRally = 0;
-      _serveCompleted = true;
 
       if (_playerServing) {
         _ballVy = 0.76 * char.swingPower * paddle.power * pace;
@@ -187,13 +224,54 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
       final state = GameState.instance;
       final character = state.selectedCharacter;
 
-      // Lateral Movement
-      final oldPlayerX = _playerX;
-      final responsiveness = 18.0 * character.moveSpeed;
-      _playerX += (_playerTargetX - _playerX) * math.min(1.0, responsiveness * dt);
-      _playerVelocityX = (_playerX - oldPlayerX) / dt;
+      // 1. Mobile Virtual Joystick 360 Movement (X & Y Depth)
+      if (_isJoystickActive) {
+        final joySpeedX = 2.6 * character.moveSpeed;
+        final joySpeedY = 1.5 * character.moveSpeed;
 
-      // Swing Decay
+        if (_joystickInputX.abs() > 0.04) {
+          _playerTargetX = (_playerTargetX + _joystickInputX * joySpeedX * dt).clamp(-0.92, 0.92);
+        }
+        if (_joystickInputY.abs() > 0.04) {
+          _playerTargetY = (_playerTargetY + _joystickInputY * joySpeedY * dt).clamp(-0.18, 0.34);
+        }
+      }
+
+      // 2. Keyboard 2D Movement (WASD / Arrow Keys)
+      final keySpeedX = 2.4 * character.moveSpeed;
+      final keySpeedY = 1.4 * character.moveSpeed;
+
+      // Lateral
+      if (_activeKeys.contains(LogicalKeyboardKey.keyA) ||
+          _activeKeys.contains(LogicalKeyboardKey.arrowLeft)) {
+        _playerTargetX = (_playerTargetX - keySpeedX * dt).clamp(-0.92, 0.92);
+      }
+      if (_activeKeys.contains(LogicalKeyboardKey.keyD) ||
+          _activeKeys.contains(LogicalKeyboardKey.arrowRight)) {
+        _playerTargetX = (_playerTargetX + keySpeedX * dt).clamp(-0.92, 0.92);
+      }
+      // Depth (Forward toward net / Backward to baseline)
+      if (_activeKeys.contains(LogicalKeyboardKey.keyW) ||
+          _activeKeys.contains(LogicalKeyboardKey.arrowUp)) {
+        _playerTargetY = (_playerTargetY + keySpeedY * dt).clamp(-0.18, 0.34);
+      }
+      if (_activeKeys.contains(LogicalKeyboardKey.keyS) ||
+          _activeKeys.contains(LogicalKeyboardKey.arrowDown)) {
+        _playerTargetY = (_playerTargetY - keySpeedY * dt).clamp(-0.18, 0.34);
+      }
+
+      // Smooth Position Interpolation
+      final oldPlayerX = _playerX;
+      final oldPlayerY = _playerY;
+      final responsiveness = 18.0 * character.moveSpeed;
+
+      _playerX += (_playerTargetX - _playerX) * math.min(1.0, responsiveness * dt);
+      _playerY += (_playerTargetY - _playerY) * math.min(1.0, responsiveness * dt);
+
+      _playerVelocityX = (_playerX - oldPlayerX) / dt;
+      _playerVelocityY = (_playerY - oldPlayerY) / dt;
+
+      // 3. Swing Decay
       if (_playerIsSwinging) {
         _playerSwingAngle += 14.0 * dt;
         if (_playerSwingAngle >= math.pi) {
@@ -209,7 +287,7 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
         }
       }
 
-      // Ballistics with Magnus Lateral Curve
+      // 4. Ball Physics
       _ballVx += _ballCurve * dt * 48.0;
       _ballX += _ballVx * dt;
       _ballY += _ballVy * dt;
@@ -231,7 +309,6 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
       if (_ballZ <= 0.0) {
         _ballZ = 0.0;
         _ballVz = -_ballVz * 0.78;
-        _bouncesThisRally++;
       }
 
       // Net Check (Y = 0.50, Height Z = 0.42m)
@@ -240,7 +317,7 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
         return;
       }
 
-      // Tactical AI Engine
+      // Tactical AI Engine (Reacts dynamically to Player X and Y)
       final aiChar = state.opponentCharacter;
       final aiMultiplier = state.difficulty.speedMultiplier;
       final oldAiX = _aiX;
@@ -252,11 +329,6 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
       if (_ballVy > 0 && _ballY >= 0.88 && _ballY <= 1.05) {
         final distToAi = (_ballX - _aiX).abs();
         if (distToAi < (0.28 * aiChar.reachFactor) && _ballZ > 0.05) {
-          if (_serveCompleted && _bouncesThisRally < 1 && _playerServing) {
-            _pointEnded(playerWonPoint: true, reason: 'TWO-BOUNCE FAULT (AI volleyed serve!)');
-            return;
-          }
-
           _triggerAiSwing();
           _executeTacticalAiShot(aiChar, state.gamePace);
           _currentRally++;
@@ -267,7 +339,7 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
       // Missed Ball Check
       if (_ballY > 1.15) {
         _pointEnded(playerWonPoint: true, reason: 'WINNER');
-      } else if (_ballY < -0.12) {
+      } else if (_ballY < -0.22) {
         _pointEnded(playerWonPoint: false, reason: 'MISSED BALL');
       }
     });
@@ -276,6 +348,9 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
   void _executeTacticalAiShot(CharacterModel aiChar, double pace) {
     final rng = math.Random();
     _aiBlitzEnergy = (_aiBlitzEnergy + 0.22).clamp(0.0, 1.0);
+
+    // AI adapts based on whether the player has rushed forward or stayed deep!
+    final playerIsDeep = _playerY < 0.05;
 
     if (_aiBlitzEnergy >= 1.0) {
       _aiBlitzEnergy = 0.0;
@@ -293,14 +368,16 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
       _ballVx = (_playerX > 0 ? -0.55 : 0.55) + (rng.nextDouble() - 0.5) * 0.2;
       _timingFeedback = '⚡ AI OVERHEAD SMASH!';
       _timingFeedbackColor = const Color(0xFFFF5252);
-    } else if (rng.nextDouble() < 0.28 && _currentRally > 2) {
+    } else if (playerIsDeep && rng.nextDouble() < 0.38 && _currentRally > 1) {
+      // AI Tactical Dink: Drops ball right over net when player is far back!
       _blitzActive = false;
-      _ballVy = -0.52 * pace;
-      _ballVz = 1.6;
+      _ballVy = -0.48 * pace;
+      _ballVz = 1.5;
       _ballVx = (rng.nextDouble() - 0.5) * 0.35;
-      _timingFeedback = '🎯 AI KITCHEN DINK!';
+      _timingFeedback = '🎯 AI TACTICAL DINK!';
       _timingFeedbackColor = AppTheme.mintAccent;
     } else {
+      // Deep Drive
       _blitzActive = false;
       _ballVy = -0.74 * aiChar.swingPower * pace;
       _ballVz = 2.1;
@@ -308,6 +385,9 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
     }
   }
 
+  // --------------------------------------------------------------------------
+  // DYNAMIC RELATIVE STRIKE ZONE (Calculates from wherever player is standing!)
+  // --------------------------------------------------------------------------
   void _triggerPlayerSwing(ShotType type) {
     _playerIsSwinging = true;
     _playerSwingAngle = 0.1;
@@ -317,28 +397,20 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
     final paddle = state.selectedPaddle;
     final pace = state.gamePace;
 
-    final inStrikeZoneY = _ballY >= -0.05 && _ballY <= 0.22;
-    final distToPaddle = (_ballX - _playerX).abs();
-    final inStrikeZoneX = distToPaddle < (0.32 * character.reachFactor);
-    final inAir = _ballZ > 0.08 && _ballZ < 2.3;
+    // Relative strike distance from the player's current position (X & Y)
+    final distY = (_ballY - _playerY).abs();
+    final inStrikeZoneY = distY <= 0.19;
+    final distX = (_ballX - _playerX).abs();
+    final inStrikeZoneX = distX < (0.34 * character.reachFactor);
+    final inAir = _ballZ > 0.05 && _ballZ < 2.4;
 
     if (inStrikeZoneY && inStrikeZoneX && inAir && _ballVy < 0) {
-      if (_serveCompleted && _bouncesThisRally < 1 && !_playerServing) {
-        _pointEnded(playerWonPoint: false, reason: 'TWO-BOUNCE FAULT (Must bounce on return!)');
-        return;
-      }
-      if (_ballY >= 0.34 && _ballZ > 0.15 && _bouncesThisRally == 0) {
-        _pointEnded(playerWonPoint: false, reason: 'KITCHEN FAULT (Volleyed in NVZ!)');
-        return;
-      }
-
-      final isRightClick = type == ShotType.smash;
-      final timingOffset = (_ballY - 0.08).abs();
-      final isPerfect = timingOffset < 0.04;
+      final isSmash = type == ShotType.smash || type == ShotType.signatureBlitz;
+      final isPerfect = distY < 0.06;
 
       _playerBlitzEnergy = (_playerBlitzEnergy + (isPerfect ? 0.35 : 0.20)).clamp(0.0, 1.0);
 
-      if (isRightClick && _playerBlitzEnergy >= 1.0) {
+      if ((isSmash || type == ShotType.signatureBlitz) && _playerBlitzEnergy >= 1.0) {
         _playerBlitzEnergy = 0.0;
         _blitzActive = true;
         _blitzTrailColor = character.accentColor;
@@ -370,12 +442,12 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
         _timingFeedbackColor = character.accentColor;
       } else {
         _blitzActive = false;
-        if (isRightClick) _totalSmashes++;
+        if (isSmash) _totalSmashes++;
 
         if (isPerfect) {
-          _timingFeedback = isRightClick ? '⚡ PERFECT SMASH!' : '🔥 PERFECT DRIVE!';
+          _timingFeedback = isSmash ? '⚡ PERFECT SMASH!' : '🔥 PERFECT DRIVE!';
           _timingFeedbackColor = AppTheme.opticYellow;
-        } else if (_ballY > 0.08) {
+        } else if (_ballY > _playerY + 0.06) {
           _timingFeedback = 'EARLY CONTACT';
           _timingFeedbackColor = AppTheme.mintAccent;
         } else {
@@ -384,8 +456,8 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
         }
 
         final combinedPower = character.swingPower * paddle.power * pace;
-        _ballVy = (isRightClick ? 0.96 : 0.72) * combinedPower;
-        _ballVz = isRightClick ? 1.35 : 2.2;
+        _ballVy = (isSmash ? 0.96 : 0.72) * combinedPower;
+        _ballVz = isSmash ? 1.35 : 2.2;
         _ballVx = (_ballX - _playerX) * 1.25 + ((math.Random().nextDouble() - 0.5) * 0.25);
         _ballCurve = ((_ballX - _playerX) / 0.3) * paddle.spin * 0.6;
       }
@@ -396,7 +468,7 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
       if (state.hapticsEnabled) {
         HapticFeedback.mediumImpact();
       }
-    } else if (_phase == MatchPhase.activeRally && _ballVy < 0 && _ballY < 0.3) {
+    } else if (_phase == MatchPhase.activeRally && _ballVy < 0 && distY < 0.3) {
       _timingFeedback = 'WHIFF!';
       _timingFeedbackColor = const Color(0xFFFF5252);
     }
@@ -407,7 +479,6 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
     _aiSwingAngle = 0.1;
   }
 
-  // DYNAMIC TARGET SCORE MATCH LOOP
   void _pointEnded({required bool playerWonPoint, required String reason}) {
     final target = GameState.instance.targetScore;
 
@@ -431,6 +502,12 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
     Future.delayed(const Duration(milliseconds: 1800), () {
       if (!mounted) return;
       if (playerWonMatch || aiWonMatch) {
+        GameState.instance.addMatchExperience(
+          wonMatch: playerWonMatch,
+          rallyHits: _longestRally,
+          smashes: _totalSmashes,
+        );
+
         setState(() => _phase = MatchPhase.gameOver);
       } else {
         _startIntroSequence();
@@ -454,16 +531,19 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
   }
 
   void _onPointerHover(PointerHoverEvent event, Size screenSize) {
+    if (_isJoystickActive) return;
     final courtCenterX = screenSize.width / 2;
     final halfCourtWidth = math.min(screenSize.width * 0.44, 280.0);
-    final normalizedX = ((event.localPosition.dx - courtCenterX) / halfCourtWidth).clamp(-1.0, 1.0);
+    final normalizedX = ((event.localPosition.dx - courtCenterX) / halfCourtWidth).clamp(-0.92, 0.92);
     setState(() => _playerTargetX = normalizedX);
   }
 
   void _onPointerDown(PointerDownEvent event) {
-    if (_phase != MatchPhase.activeRally && _phase != MatchPhase.countdown) return;
-    final isRightClick = event.buttons == kSecondaryMouseButton;
-    _triggerPlayerSwing(isRightClick ? ShotType.smash : ShotType.normal);
+    if (event.kind == PointerDeviceKind.mouse) {
+      if (_phase != MatchPhase.activeRally && _phase != MatchPhase.countdown) return;
+      final isRightClick = event.buttons == kSecondaryMouseButton;
+      _triggerPlayerSwing(isRightClick ? ShotType.smash : ShotType.normal);
+    }
   }
 
   @override
@@ -477,27 +557,26 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
           builder: (context, constraints) {
             final screenSize = Size(constraints.maxWidth, constraints.maxHeight);
 
-            return Stack(
-              children: [
-                Positioned.fill(
-                  child: Listener(
-                    onPointerDown: _onPointerDown,
-                    child: MouseRegion(
-                      cursor: SystemMouseCursors.none,
-                      onHover: (e) => _onPointerHover(e, screenSize),
-                      child: GestureDetector(
-                        onHorizontalDragUpdate: (e) {
-                          final courtCenterX = screenSize.width / 2;
-                          final halfCourtWidth = math.min(screenSize.width * 0.44, 280.0);
-                          setState(() {
-                            _playerTargetX = ((e.localPosition.dx - courtCenterX) / halfCourtWidth).clamp(-1.0, 1.0);
-                          });
-                        },
+            return KeyboardListener(
+              focusNode: _keyboardFocusNode,
+              autofocus: true,
+              onKeyEvent: _handleKeyEvent,
+              child: Stack(
+                children: [
+                  // 1. Perspective 3D Court Canvas
+                  Positioned.fill(
+                    child: Listener(
+                      onPointerDown: _onPointerDown,
+                      child: MouseRegion(
+                        cursor: SystemMouseCursors.none,
+                        onHover: (e) => _onPointerHover(e, screenSize),
                         child: CustomPaint(
                           size: screenSize,
                           painter: PerspectiveCourtPainter(
                             playerX: _playerX,
+                            playerY: _playerY,
                             playerVelocityX: _playerVelocityX,
+                            playerVelocityY: _playerVelocityY,
                             playerSwingAngle: _playerSwingAngle,
                             playerIsSwinging: _playerIsSwinging,
                             playerColor: state.selectedCharacter.bodyColor,
@@ -511,6 +590,9 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
                             ballX: _ballX,
                             ballY: _ballY,
                             ballZ: _ballZ,
+                            ballVx: _ballVx,
+                            ballVy: _ballVy,
+                            ballVz: _ballVz,
                             blitzActive: _blitzActive,
                             blitzColor: _blitzTrailColor,
                             equippedPaddle: state.selectedPaddle,
@@ -520,222 +602,331 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
                       ),
                     ),
                   ),
-                ),
 
-                // Top Match Scoreboard
-                Positioned(
-                  top: 16,
-                  left: 16,
-                  right: 16,
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      IconButton(
-                        style: IconButton.styleFrom(backgroundColor: AppTheme.glassFill),
-                        icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 18, color: Colors.white),
-                        onPressed: () => Navigator.pop(context),
-                      ),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF0D1B16),
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: Colors.white12),
+                  // 2. Top Match Scoreboard
+                  Positioned(
+                    top: 16,
+                    left: 16,
+                    right: 16,
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        IconButton(
+                          style: IconButton.styleFrom(backgroundColor: AppTheme.glassFill),
+                          icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 18, color: Colors.white),
+                          onPressed: () => Navigator.pop(context),
                         ),
-                        child: Row(
-                          children: [
-                            Text('${state.selectedCharacter.name.split(" ")[0].toUpperCase()}: $_playerScore',
-                                style: TextStyle(color: state.selectedCharacter.bodyColor, fontWeight: FontWeight.w900, fontSize: 13)),
-                            const Padding(
-                              padding: EdgeInsets.symmetric(horizontal: 12),
-                              child: Text('•', style: TextStyle(color: Colors.white30)),
-                            ),
-                            Text('${state.opponentCharacter.name.split(" ")[0].toUpperCase()}: $_aiScore',
-                                style: TextStyle(color: state.opponentCharacter.bodyColor, fontWeight: FontWeight.w900, fontSize: 13)),
-                          ],
-                        ),
-                      ),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                        decoration: BoxDecoration(
-                          color: AppTheme.glassFill,
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                        child: Text(
-                          'FIRST TO ${state.targetScore}',
-                          style: const TextStyle(color: AppTheme.mintAccent, fontSize: 10, fontWeight: FontWeight.bold),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-
-                // BLITZ ENERGY GAUGE HUD
-                Positioned(
-                  bottom: 54,
-                  left: 0,
-                  right: 0,
-                  child: Center(
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                      decoration: BoxDecoration(
-                        color: Colors.black87,
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(
-                          color: _playerBlitzEnergy >= 1.0 ? AppTheme.opticYellow : Colors.white12,
-                          width: _playerBlitzEnergy >= 1.0 ? 2.0 : 1.0,
-                        ),
-                        boxShadow: _playerBlitzEnergy >= 1.0
-                            ? [BoxShadow(color: AppTheme.opticYellow.withValues(alpha: 0.4), blurRadius: 16)]
-                            : null,
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            Icons.bolt,
-                            size: 18,
-                            color: _playerBlitzEnergy >= 1.0 ? AppTheme.opticYellow : Colors.white38,
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF0D1B16),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: Colors.white12),
                           ),
-                          const SizedBox(width: 8),
-                          SizedBox(
-                            width: 140,
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    Text(
-                                      _playerBlitzEnergy >= 1.0 ? 'BLITZ READY!' : 'BLITZ GAUGE',
-                                      style: TextStyle(
-                                        color: _playerBlitzEnergy >= 1.0 ? AppTheme.opticYellow : Colors.white70,
-                                        fontSize: 9,
-                                        fontWeight: FontWeight.w900,
-                                        letterSpacing: 0.8,
-                                      ),
-                                    ),
-                                    Text(
-                                      '${(_playerBlitzEnergy * 100).toInt()}%',
-                                      style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 3),
-                                ClipRRect(
-                                  borderRadius: BorderRadius.circular(4),
-                                  child: LinearProgressIndicator(
-                                    value: _playerBlitzEnergy,
-                                    minHeight: 5,
-                                    backgroundColor: Colors.white12,
-                                    valueColor: AlwaysStoppedAnimation(
-                                      _playerBlitzEnergy >= 1.0 ? AppTheme.opticYellow : state.selectedCharacter.accentColor,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
+                          child: Row(
+                            children: [
+                              Text('${state.selectedCharacter.name.split(" ")[0].toUpperCase()}: $_playerScore',
+                                  style: TextStyle(color: state.selectedCharacter.bodyColor, fontWeight: FontWeight.w900, fontSize: 13)),
+                              const Padding(
+                                padding: EdgeInsets.symmetric(horizontal: 12),
+                                child: Text('•', style: TextStyle(color: Colors.white30)),
+                              ),
+                              Text('${state.opponentCharacter.name.split(" ")[0].toUpperCase()}: $_aiScore',
+                                  style: TextStyle(color: state.opponentCharacter.bodyColor, fontWeight: FontWeight.w900, fontSize: 13)),
+                            ],
                           ),
-                        ],
-                      ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: AppTheme.glassFill,
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          child: Text(
+                            'FIRST TO ${state.targetScore}',
+                            style: const TextStyle(color: AppTheme.mintAccent, fontSize: 10, fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                ),
 
-                // Timing Feedback
-                if (_timingFeedback.isNotEmpty)
+                  // 3. Central Blitz Energy Gauge
                   Positioned(
-                    bottom: 110,
+                    top: 68,
                     left: 0,
                     right: 0,
                     child: Center(
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
                         decoration: BoxDecoration(
-                          color: Colors.black.withValues(alpha: 0.80),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: _timingFeedbackColor.withValues(alpha: 0.6)),
+                          color: Colors.black87,
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(
+                            color: _playerBlitzEnergy >= 1.0 ? AppTheme.opticYellow : Colors.white12,
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.bolt, size: 16, color: _playerBlitzEnergy >= 1.0 ? AppTheme.opticYellow : Colors.white38),
+                            const SizedBox(width: 6),
+                            SizedBox(
+                              width: 110,
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(4),
+                                child: LinearProgressIndicator(
+                                  value: _playerBlitzEnergy,
+                                  minHeight: 4,
+                                  backgroundColor: Colors.white12,
+                                  valueColor: AlwaysStoppedAnimation(
+                                    _playerBlitzEnergy >= 1.0 ? AppTheme.opticYellow : state.selectedCharacter.accentColor,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+
+                  // 4. Timing Feedback
+                  if (_timingFeedback.isNotEmpty)
+                    Positioned(
+                      bottom: 120,
+                      left: 0,
+                      right: 0,
+                      child: Center(
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.80),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: _timingFeedbackColor.withValues(alpha: 0.6)),
+                          ),
+                          child: Text(
+                            _timingFeedback,
+                            style: TextStyle(
+                              color: _timingFeedbackColor,
+                              fontWeight: FontWeight.w900,
+                              fontSize: 13,
+                              letterSpacing: 1.2,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+
+                  // 5. Toast Banner
+                  if (_phase == MatchPhase.intro ||
+                      _phase == MatchPhase.serveReady ||
+                      _phase == MatchPhase.pointScored)
+                    Center(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 16),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF0F1B16).withValues(alpha: 0.94),
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(color: AppTheme.opticYellow.withValues(alpha: 0.4)),
+                          boxShadow: const [BoxShadow(color: Colors.black54, blurRadius: 24)],
                         ),
                         child: Text(
-                          _timingFeedback,
-                          style: TextStyle(
-                            color: _timingFeedbackColor,
+                          _toastMessage,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 16,
                             fontWeight: FontWeight.w900,
-                            fontSize: 13,
-                            letterSpacing: 1.2,
+                            letterSpacing: 1.5,
+                          ),
+                        ),
+                      ),
+                    ),
+
+                  // 6. Countdown Numbers
+                  if (_phase == MatchPhase.countdown)
+                    Center(
+                      child: Text(
+                        '$_countdownNumber',
+                        style: const TextStyle(
+                          fontSize: 72,
+                          fontWeight: FontWeight.w900,
+                          color: AppTheme.opticYellow,
+                          shadows: [Shadow(color: Colors.black, blurRadius: 20)],
+                        ),
+                      ),
+                    ),
+
+                  // ==========================================================
+                  // 7. TASK 4 & 5: 360 DEGREE MOBILE JOYSTICK CONTROLS
+                  // ==========================================================
+
+                  // A. LEFT THUMB: 360 DEGREE VIRTUAL JOYSTICK
+                  Positioned(
+                    bottom: 24,
+                    left: 20,
+                    child: GestureDetector(
+                      onPanStart: (_) {
+                        setState(() {
+                          _isJoystickActive = true;
+                          _joystickKnobOffset = Offset.zero;
+                        });
+                      },
+                      onPanUpdate: (details) {
+                        final localOffset = _joystickKnobOffset + details.delta;
+                        final distance = localOffset.distance;
+                        final clampedOffset = distance > _joystickRadius
+                            ? Offset.fromDirection(localOffset.direction, _joystickRadius)
+                            : localOffset;
+
+                        setState(() {
+                          _joystickKnobOffset = clampedOffset;
+                          _joystickInputX = clampedOffset.dx / _joystickRadius;
+                          // Upwards on screen moves character forward toward net
+                          _joystickInputY = -clampedOffset.dy / _joystickRadius;
+                        });
+                      },
+                      onPanEnd: (_) {
+                        setState(() {
+                          _isJoystickActive = false;
+                          _joystickKnobOffset = Offset.zero;
+                          _joystickInputX = 0.0;
+                          _joystickInputY = 0.0;
+                        });
+                      },
+                      child: Container(
+                        width: 100,
+                        height: 100,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: Colors.black.withValues(alpha: 0.35),
+                          border: Border.all(color: Colors.white24, width: 2),
+                        ),
+                        child: Center(
+                          child: Transform.translate(
+                            offset: _joystickKnobOffset,
+                            child: Container(
+                              width: 44,
+                              height: 44,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: AppTheme.opticYellow.withValues(alpha: 0.85),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: AppTheme.opticYellow.withValues(alpha: 0.4),
+                                    blurRadius: 10,
+                                  ),
+                                ],
+                              ),
+                              child: const Icon(Icons.control_camera_rounded, size: 18, color: Colors.black),
+                            ),
                           ),
                         ),
                       ),
                     ),
                   ),
 
-                // Toast Banner
-                if (_phase == MatchPhase.intro ||
-                    _phase == MatchPhase.serveReady ||
-                    _phase == MatchPhase.pointScored)
-                  Center(
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 16),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF0F1B16).withValues(alpha: 0.94),
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(color: AppTheme.opticYellow.withValues(alpha: 0.4)),
-                        boxShadow: const [BoxShadow(color: Colors.black54, blurRadius: 24)],
-                      ),
-                      child: Text(
-                        _toastMessage,
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w900,
-                          letterSpacing: 1.5,
+                  // B. RIGHT THUMB: ACTION BUTTON CLUSTER
+                  Positioned(
+                    bottom: 20,
+                    right: 18,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        _mobileActionButton(
+                          label: 'BLITZ',
+                          icon: Icons.bolt,
+                          size: 50,
+                          color: _playerBlitzEnergy >= 1.0 ? AppTheme.opticYellow : Colors.white12,
+                          textColor: _playerBlitzEnergy >= 1.0 ? Colors.black : Colors.white38,
+                          glow: _playerBlitzEnergy >= 1.0,
+                          onTap: () {
+                            if (_playerBlitzEnergy >= 1.0) {
+                              _triggerPlayerSwing(ShotType.signatureBlitz);
+                            }
+                          },
                         ),
-                      ),
+                        const SizedBox(width: 10),
+                        _mobileActionButton(
+                          label: 'SMASH',
+                          icon: Icons.flash_on_rounded,
+                          size: 58,
+                          color: const Color(0xFFFF7043),
+                          textColor: Colors.white,
+                          onTap: () => _triggerPlayerSwing(ShotType.smash),
+                        ),
+                        const SizedBox(width: 10),
+                        _mobileActionButton(
+                          label: 'DRIVE',
+                          icon: Icons.sports_tennis,
+                          size: 68,
+                          color: AppTheme.mintAccent,
+                          textColor: Colors.black,
+                          onTap: () => _triggerPlayerSwing(ShotType.normal),
+                        ),
+                      ],
                     ),
                   ),
 
-                // Countdown Numbers
-                if (_phase == MatchPhase.countdown)
-                  Center(
-                    child: Text(
-                      '$_countdownNumber',
-                      style: const TextStyle(
-                        fontSize: 72,
-                        fontWeight: FontWeight.w900,
-                        color: AppTheme.opticYellow,
-                        shadows: [Shadow(color: Colors.black, blurRadius: 20)],
-                      ),
+                  // 8. Game Over Modal
+                  if (_phase == MatchPhase.gameOver)
+                    _buildGameOverStatsModal(
+                      playerWon: _playerScore > _aiScore,
+                      state: state,
                     ),
-                  ),
-
-                // Tournament Game Over Modal
-                if (_phase == MatchPhase.gameOver)
-                  _buildGameOverStatsModal(
-                    playerWon: _playerScore > _aiScore,
-                    state: state,
-                  ),
-
-                // Venue & Match Rules Footer
-                Positioned(
-                  bottom: 16,
-                  left: 16,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.65),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Text(
-                      'VENUE: ${state.courtVenue.toUpperCase()} • PACE: ${state.gamePace}x • FIRST TO ${state.targetScore}',
-                      style: const TextStyle(color: Colors.white70, fontSize: 10, fontFamily: 'monospace'),
-                    ),
-                  ),
-                ),
-              ],
+                ],
+              ),
             );
           },
+        ),
+      ),
+    );
+  }
+
+  Widget _mobileActionButton({
+    required String label,
+    required IconData icon,
+    required double size,
+    required Color color,
+    required Color textColor,
+    required VoidCallback onTap,
+    bool glow = false,
+  }) {
+    return GestureDetector(
+      onTapDown: (_) {
+        if (GameState.instance.hapticsEnabled) {
+          HapticFeedback.lightImpact();
+        }
+        onTap();
+      },
+      child: Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: color.withValues(alpha: 0.85),
+          border: Border.all(color: Colors.white38, width: 2),
+          boxShadow: glow
+              ? [BoxShadow(color: color.withValues(alpha: 0.6), blurRadius: 18, spreadRadius: 2)]
+              : [BoxShadow(color: Colors.black.withValues(alpha: 0.4), blurRadius: 8)],
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, size: size * 0.38, color: textColor),
+            const SizedBox(height: 2),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 9,
+                fontWeight: FontWeight.w900,
+                color: textColor,
+                letterSpacing: 0.5,
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -836,12 +1027,14 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
 }
 
 // ============================================================================
-// ELEVATED 3D COURT PAINTER (3 DISTINCT VENUE GRAPHICS)
+// CENTERED 3D COURT PAINTER WITH TASK 5 DYNAMIC PLAYER DEPTH POSITION
 // ============================================================================
 
 class PerspectiveCourtPainter extends CustomPainter {
   final double playerX;
+  final double playerY; // <-- Dynamic Y depth
   final double playerVelocityX;
+  final double playerVelocityY;
   final double playerSwingAngle;
   final bool playerIsSwinging;
   final Color playerColor;
@@ -857,6 +1050,9 @@ class PerspectiveCourtPainter extends CustomPainter {
   final double ballX;
   final double ballY;
   final double ballZ;
+  final double ballVx;
+  final double ballVy;
+  final double ballVz;
   final bool blitzActive;
   final Color blitzColor;
   final PaddleModel equippedPaddle;
@@ -864,7 +1060,9 @@ class PerspectiveCourtPainter extends CustomPainter {
 
   PerspectiveCourtPainter({
     required this.playerX,
+    required this.playerY,
     required this.playerVelocityX,
+    required this.playerVelocityY,
     required this.playerSwingAngle,
     required this.playerIsSwinging,
     required this.playerColor,
@@ -878,6 +1076,9 @@ class PerspectiveCourtPainter extends CustomPainter {
     required this.ballX,
     required this.ballY,
     required this.ballZ,
+    required this.ballVx,
+    required this.ballVy,
+    required this.ballVz,
     required this.blitzActive,
     required this.blitzColor,
     required this.equippedPaddle,
@@ -886,29 +1087,28 @@ class PerspectiveCourtPainter extends CustomPainter {
 
   Offset project3D(double x, double y, double z, Size size) {
     final centerX = size.width / 2;
-    final nearY = size.height * 0.86;
-    final farY = size.height * 0.22;
-    final nearWidth = math.min(size.width * 0.88, 540.0);
+    final nearY = size.height * 0.77;
+    final farY = size.height * 0.24;
+    final nearWidth = math.min(size.width * 0.86, 520.0);
     final farWidth = nearWidth * 0.52;
 
-    final depth = y.clamp(0.0, 1.0);
+    final depth = y.clamp(-0.25, 1.0);
     final courtWidthAtY = nearWidth + (farWidth - nearWidth) * depth;
     final groundY = nearY + (farY - nearY) * depth;
 
     final screenX = centerX + (x * (courtWidthAtY / 2));
-    final depthScale = 1.0 - (depth * 0.48);
+    final depthScale = 1.0 - (depth.clamp(0.0, 1.0) * 0.46);
     final screenY = groundY - (z * 135.0 * depthScale);
 
     return Offset(screenX, screenY);
   }
 
   double getScale(double y) {
-    return 1.0 - (y.clamp(0.0, 1.0) * 0.48);
+    return 1.0 - (y.clamp(-0.2, 1.0) * 0.46);
   }
 
   @override
   void paint(Canvas canvas, Size size) {
-    // 3 Venue Color Schemes
     Color apronColor;
     Color courtColor;
     Color kitchenColor;
@@ -919,15 +1119,14 @@ class PerspectiveCourtPainter extends CustomPainter {
       apronColor = const Color(0xFF070B10);
       courtColor = const Color(0xFF0F1722);
       kitchenColor = const Color(0xFF162130);
-      lineCol = const Color(0xFF00E5FF); // Neon Cyan LED
+      lineCol = const Color(0xFF00E5FF);
       hasNeonGlow = true;
     } else if (courtVenue == 'Sunlit Beach') {
-      apronColor = const Color(0xFFD4A373); // Sand Apron
-      courtColor = const Color(0xFF2A9D8F); // Tropical Ocean Court
-      kitchenColor = const Color(0xFF264653); // Deep Lagoon Kitchen
+      apronColor = const Color(0xFFD4A373);
+      courtColor = const Color(0xFF2A9D8F);
+      kitchenColor = const Color(0xFF264653);
       lineCol = const Color(0xFFFAEDCD);
     } else {
-      // Tournament Arena
       apronColor = const Color(0xFF102840);
       courtColor = const Color(0xFF1F598C);
       kitchenColor = const Color(0xFF173E63);
@@ -936,21 +1135,23 @@ class PerspectiveCourtPainter extends CustomPainter {
 
     // 1. Apron
     final apronPath = Path()
-      ..moveTo(project3D(-1.35, 0.0, 0, size).dx, project3D(-1.35, 0.0, 0, size).dy + 20)
-      ..lineTo(project3D(1.35, 0.0, 0, size).dx, project3D(1.35, 0.0, 0, size).dy + 20)
+      ..moveTo(project3D(-1.35, -0.22, 0, size).dx, project3D(-1.35, -0.22, 0, size).dy)
+      ..lineTo(project3D(1.35, -0.22, 0, size).dx, project3D(1.35, -0.22, 0, size).dy)
       ..lineTo(project3D(1.40, 1.05, 0, size).dx, project3D(1.40, 1.05, 0, size).dy - 10)
       ..lineTo(project3D(-1.40, 1.05, 0, size).dx, project3D(-1.40, 1.05, 0, size).dy - 10)
       ..close();
-    canvas.drawPath(apronPath, Paint()..color = apronColor);
+    final apronPaint = Paint()..color = apronColor;
+    canvas.drawPath(apronPath, apronPaint);
 
-    // 2. Playable Court
+    // 2. Playable In-Bounds Court
     final courtPath = Path()
       ..moveTo(project3D(-1.0, 0.0, 0, size).dx, project3D(-1.0, 0.0, 0, size).dy)
       ..lineTo(project3D(1.0, 0.0, 0, size).dx, project3D(1.0, 0.0, 0, size).dy)
       ..lineTo(project3D(1.0, 1.0, 0, size).dx, project3D(1.0, 1.0, 0, size).dy)
       ..lineTo(project3D(-1.0, 1.0, 0, size).dx, project3D(-1.0, 1.0, 0, size).dy)
       ..close();
-    canvas.drawPath(courtPath, Paint()..color = courtColor);
+    final courtPaint = Paint()..color = courtColor;
+    canvas.drawPath(courtPath, courtPaint);
 
     // 3. Kitchen (NVZ)
     final kitchenPath = Path()
@@ -959,26 +1160,31 @@ class PerspectiveCourtPainter extends CustomPainter {
       ..lineTo(project3D(1.0, 0.66, 0, size).dx, project3D(1.0, 0.66, 0, size).dy)
       ..lineTo(project3D(-1.0, 0.66, 0, size).dx, project3D(-1.0, 0.66, 0, size).dy)
       ..close();
-    canvas.drawPath(kitchenPath, Paint()..color = kitchenColor);
+    final kitchenPaint = Paint()..color = kitchenColor;
+    canvas.drawPath(kitchenPath, kitchenPaint);
 
-    // 4. Lines (With optional Midnight Neon Glow)
+    // 4. White Lines
     final linePaint = Paint()
       ..color = lineCol.withValues(alpha: 0.90)
       ..style = PaintingStyle.stroke
       ..strokeWidth = 2.5;
 
     if (hasNeonGlow) {
-      canvas.drawPath(
-        courtPath,
-        Paint()
-          ..color = lineCol.withValues(alpha: 0.4)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 6.0
-          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8),
-      );
+      final glowPaint = Paint()
+        ..color = lineCol.withValues(alpha: 0.4)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 6.0
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8);
+      canvas.drawPath(courtPath, glowPaint);
     }
 
     canvas.drawPath(courtPath, linePaint);
+    final bufferLinePaint = Paint()
+      ..color = lineCol.withValues(alpha: 0.35)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.5;
+    canvas.drawLine(project3D(-1.0, -0.20, 0, size), project3D(1.0, -0.20, 0, size), bufferLinePaint);
+
     canvas.drawLine(project3D(-1.0, 0.34, 0, size), project3D(1.0, 0.34, 0, size), linePaint);
     canvas.drawLine(project3D(-1.0, 0.66, 0, size), project3D(1.0, 0.66, 0, size), linePaint);
     canvas.drawLine(project3D(0.0, 0.0, 0, size), project3D(0.0, 0.34, 0, size), linePaint);
@@ -1002,15 +1208,18 @@ class PerspectiveCourtPainter extends CustomPainter {
     // 6. Net Structure
     _drawPerspectiveNet(canvas, size, lineCol);
 
-    // 7. Ball & Drop Shadow
+    // 7. Ball Landing Reticle
+    _drawLandingReticle(canvas, size);
+
+    // 8. Ball & Shadow
     _drawBallAndShadow(canvas, size);
 
-    // 8. Player Rig
+    // 9. Player Rig (Rendered dynamically at Player X and Player Y!)
     _drawAnimatedCharacter(
       canvas: canvas,
       size: size,
       x: playerX,
-      y: 0.0,
+      y: playerY,
       velocityX: playerVelocityX,
       swingAngle: playerSwingAngle,
       isSwinging: playerIsSwinging,
@@ -1019,6 +1228,57 @@ class PerspectiveCourtPainter extends CustomPainter {
       paddleAccent: equippedPaddle.accentColor,
       isOpponent: false,
     );
+  }
+
+  void _drawLandingReticle(Canvas canvas, Size size) {
+    if (ballZ <= 0.04 || ballVy >= 0) return;
+
+    const g = 4.6;
+    final discriminant = (ballVz * ballVz) + (2 * g * ballZ);
+    if (discriminant < 0) return;
+
+    final timeToFloor = (ballVz + math.sqrt(discriminant)) / g;
+    if (timeToFloor <= 0.02 || timeToFloor > 1.8) return;
+
+    final landingX = (ballX + (ballVx * timeToFloor)).clamp(-0.95, 0.95);
+    final landingY = (ballY + (ballVy * timeToFloor));
+
+    if (landingY < -0.22 || landingY > 0.55) return;
+
+    final targetPos = project3D(landingX, landingY, 0.0, size);
+    final scale = getScale(landingY);
+
+    final outerRadius = 24.0 * scale;
+    final ringPaint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.70)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.2;
+    canvas.drawOval(
+      Rect.fromCenter(center: targetPos, width: outerRadius * 2, height: outerRadius * 0.9),
+      ringPaint,
+    );
+
+    final progress = (ballZ / 1.6).clamp(0.0, 1.0);
+    final innerRadius = outerRadius * progress;
+    if (innerRadius > 1.5) {
+      final innerPaint = Paint()
+        ..color = AppTheme.opticYellow.withValues(alpha: 0.85)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.8;
+      canvas.drawOval(
+        Rect.fromCenter(center: targetPos, width: innerRadius * 2, height: innerRadius * 0.9),
+        innerPaint,
+      );
+    }
+
+    canvas.drawCircle(targetPos, 3.0 * scale, Paint()..color = AppTheme.opticYellow);
+
+    final currentShadowPos = project3D(ballX, ballY, 0.0, size);
+    final pathPaint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.22)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.5;
+    canvas.drawLine(currentShadowPos, targetPos, pathPaint);
   }
 
   void _drawPerspectiveNet(Canvas canvas, Size size, Color cordColor) {
@@ -1034,7 +1294,9 @@ class PerspectiveCourtPainter extends CustomPainter {
       ..lineTo(rightTop.dx, rightTop.dy)
       ..lineTo(leftTop.dx, leftTop.dy)
       ..close();
-    canvas.drawPath(meshPath, Paint()..color = cordColor.withValues(alpha: 0.28));
+    final meshPaint = Paint()..color = cordColor.withValues(alpha: 0.28);
+    canvas.drawPath(meshPath, meshPaint);
+
     canvas.drawLine(leftTop, rightTop, Paint()..color = cordColor..strokeWidth = 3.5);
     final postPaint = Paint()..color = cordColor.withValues(alpha: 0.7)..strokeWidth = 4.0;
     canvas.drawLine(leftBase, leftTop, postPaint);
