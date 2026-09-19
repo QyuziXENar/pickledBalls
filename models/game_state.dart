@@ -12,7 +12,7 @@ enum AIDifficulty {
 }
 
 // ============================================================================
-// CAMPAIGN STAGE MODEL
+// CAMPAIGN STAGES
 // ============================================================================
 class CampaignStage {
   final int stageNumber;
@@ -51,7 +51,7 @@ const List<CampaignStage> kCampaignStages = [
     venue: 'Sunlit Beach',
     requiredPlayerLevel: 1,
     xpReward: 120,
-    unlockRewardName: 'Titan Emerald 16mm Paddle',
+    unlockRewardName: 'Titan Carbon 16mm Paddle',
   ),
   CampaignStage(
     stageNumber: 2,
@@ -63,7 +63,7 @@ const List<CampaignStage> kCampaignStages = [
     venue: 'Tournament Arena',
     requiredPlayerLevel: 2,
     xpReward: 250,
-    unlockRewardName: 'Solar Flare Pro Paddle',
+    unlockRewardName: 'Cyber Shatter Pro Paddle',
   ),
   CampaignStage(
     stageNumber: 3,
@@ -75,12 +75,12 @@ const List<CampaignStage> kCampaignStages = [
     venue: 'Midnight Stadium',
     requiredPlayerLevel: 3,
     xpReward: 500,
-    unlockRewardName: 'Phantom Raw T700 & Grand Slam Trophy',
+    unlockRewardName: 'Pro Starburst & Grand Slam Trophy',
   ),
 ];
 
 // ============================================================================
-// CHARACTER ARCHETYPES
+// CHARACTER MODELS
 // ============================================================================
 class CharacterModel {
   final String id;
@@ -114,8 +114,8 @@ class CharacterModel {
 
 const List<CharacterModel> kCharacters = [
   CharacterModel(
-    id: 'aria',
-    name: 'Aria Vance',
+    id: 'alyx',
+    name: 'Alyx Vance',
     gender: 'Female',
     archetype: 'Speedster',
     moveSpeed: 1.32,
@@ -172,7 +172,7 @@ const List<CharacterModel> kCharacters = [
 ];
 
 // ============================================================================
-// PADDLE MODELS WITH LEVEL UNLOCKS
+// EXPANDED 9 PADDLE SKINS WITH 7 DETAILED STATS (REFERENCE IMAGES 2 & 3)
 // ============================================================================
 class PaddleModel {
   final String id;
@@ -180,10 +180,22 @@ class PaddleModel {
   final String brand;
   final Color primaryColor;
   final Color accentColor;
-  final double power;
-  final double control;
-  final double spin;
-  final int unlockLevel; // Minimum player level to equip
+  final String skinPattern; // Visual style tag
+
+  // 7 Detailed RPG Stats (Values from 4 to 25)
+  final int statSpin;
+  final int statSwing;
+  final int statAgility;
+  final int statAccuracy;
+  final int statStamina;
+  final int statPower;
+  final int statSpeed;
+
+  // Upgrade & Level State
+  final int level;
+  final int cardsCollected;
+  final int cardsNeeded;
+  final int unlockLevel;
 
   const PaddleModel({
     required this.id,
@@ -191,11 +203,25 @@ class PaddleModel {
     required this.brand,
     required this.primaryColor,
     required this.accentColor,
-    required this.power,
-    required this.control,
-    required this.spin,
+    required this.skinPattern,
+    required this.statSpin,
+    required this.statSwing,
+    required this.statAgility,
+    required this.statAccuracy,
+    required this.statStamina,
+    required this.statPower,
+    required this.statSpeed,
+    this.level = 1,
+    this.cardsCollected = 7,
+    this.cardsNeeded = 20,
     this.unlockLevel = 1,
   });
+
+  // Normalized Multipliers for Physics Engine
+  double get power => 0.70 + (statPower * 0.015);
+  double get control => 0.70 + (statAccuracy * 0.015);
+  double get spin => 0.65 + (statSpin * 0.018);
+  double get agilityBonus => statAgility * 0.012;
 }
 
 const List<PaddleModel> kPaddles = [
@@ -203,56 +229,182 @@ const List<PaddleModel> kPaddles = [
     id: 'volt_strike',
     name: 'VoltStrike Carbon',
     brand: 'BLITZ LABS',
-    primaryColor: Color(0xFF1B2822),
-    accentColor: Color(0xFFD6F800),
-    power: 0.92,
-    control: 0.78,
-    spin: 0.85,
-    unlockLevel: 1, // Starter paddle
+    primaryColor: Color(0xFFFF6D00),
+    accentColor: Color(0xFF00E5FF),
+    skinPattern: 'lightning',
+    statSpin: 18,
+    statSwing: 20,
+    statAgility: 8,
+    statAccuracy: 12,
+    statStamina: 10,
+    statPower: 16,
+    statSpeed: 14,
+    level: 2,
+    cardsCollected: 14,
+    cardsNeeded: 25,
+    unlockLevel: 1,
   ),
   PaddleModel(
-    id: 'emerald_titan',
-    name: 'Titan Emerald 16mm',
-    brand: 'APEX TOUR',
-    primaryColor: Color(0xFF0F3B2E),
-    accentColor: Color(0xFF26E098),
-    power: 0.80,
-    control: 0.95,
-    spin: 0.82,
+    id: 'ocean_splash',
+    name: 'Ocean Splash Wave',
+    brand: 'AQUA TOUR',
+    primaryColor: Color(0xFF0277BD),
+    accentColor: Color(0xFF4FC3F7),
+    skinPattern: 'splash',
+    statSpin: 20,
+    statSwing: 16,
+    statAgility: 10,
+    statAccuracy: 18,
+    statStamina: 12,
+    statPower: 10,
+    statSpeed: 12,
+    level: 1,
+    cardsCollected: 8,
+    cardsNeeded: 15,
+    unlockLevel: 1,
+  ),
+  PaddleModel(
+    id: 'titan_carbon',
+    name: 'Titan Carbon Weave',
+    brand: 'APEX PRO',
+    primaryColor: Color(0xFF1B5E20),
+    accentColor: Color(0xFF69F0AE),
+    skinPattern: 'carbon',
+    statSpin: 14,
+    statSwing: 14,
+    statAgility: 12,
+    statAccuracy: 22,
+    statStamina: 16,
+    statPower: 14,
+    statSpeed: 12,
+    level: 2,
+    cardsCollected: 21,
+    cardsNeeded: 30,
     unlockLevel: 2,
   ),
   PaddleModel(
-    id: 'solar_flare',
-    name: 'Solar Flare Pro',
-    brand: 'IGNITE',
-    primaryColor: Color(0xFF2B1616),
-    accentColor: Color(0xFFFF5722),
-    power: 0.96,
-    control: 0.72,
-    spin: 0.90,
+    id: 'cyber_shatter',
+    name: 'Cyber Shatter Neon',
+    brand: 'MONOLITH',
+    primaryColor: Color(0xFF0D47A1),
+    accentColor: Color(0xFFEEFF41),
+    skinPattern: 'cyber',
+    statSpin: 22,
+    statSwing: 18,
+    statAgility: 10,
+    statAccuracy: 14,
+    statStamina: 14,
+    statPower: 18,
+    statSpeed: 16,
+    level: 1,
+    cardsCollected: 4,
+    cardsNeeded: 20,
+    unlockLevel: 2,
+  ),
+  PaddleModel(
+    id: 'street_graffiti',
+    name: 'Street Stencil 90',
+    brand: 'URBAN BLITZ',
+    primaryColor: Color(0xFFD50000),
+    accentColor: Color(0xFF00E5FF),
+    skinPattern: 'graffiti',
+    statSpin: 16,
+    statSwing: 22,
+    statAgility: 14,
+    statAccuracy: 10,
+    statStamina: 10,
+    statPower: 20,
+    statSpeed: 18,
+    level: 1,
+    cardsCollected: 3,
+    cardsNeeded: 20,
+    unlockLevel: 2,
+  ),
+  PaddleModel(
+    id: 'glacier_crack',
+    name: 'Glacier Crystalline',
+    brand: 'FROST LABS',
+    primaryColor: Color(0xFF01579B),
+    accentColor: Color(0xFFB3E5FC),
+    skinPattern: 'glacier',
+    statSpin: 20,
+    statSwing: 16,
+    statAgility: 8,
+    statAccuracy: 20,
+    statStamina: 16,
+    statPower: 12,
+    statSpeed: 10,
+    level: 1,
+    cardsCollected: 5,
+    cardsNeeded: 25,
     unlockLevel: 3,
   ),
   PaddleModel(
-    id: 'cyber_ghost',
-    name: 'Phantom Raw T700',
-    brand: 'MONOLITH',
-    primaryColor: Color(0xFF182026),
-    accentColor: Color(0xFF00D2FF),
-    power: 0.86,
-    control: 0.89,
-    spin: 0.94,
+    id: 'retro_target',
+    name: 'Retro Bullseye 70s',
+    brand: 'VINTAGE',
+    primaryColor: Color(0xFFC62828),
+    accentColor: Color(0xFFFFB300),
+    skinPattern: 'target',
+    statSpin: 12,
+    statSwing: 14,
+    statAgility: 10,
+    statAccuracy: 16,
+    statStamina: 20,
+    statPower: 16,
+    statSpeed: 14,
+    level: 1,
+    cardsCollected: 2,
+    cardsNeeded: 25,
+    unlockLevel: 3,
+  ),
+  PaddleModel(
+    id: 'sunburst_stripe',
+    name: 'Sunburst Surf Band',
+    brand: 'COASTAL',
+    primaryColor: Color(0xFFE65100),
+    accentColor: Color(0xFF40C4FF),
+    skinPattern: 'stripes',
+    statSpin: 16,
+    statSwing: 18,
+    statAgility: 16,
+    statAccuracy: 16,
+    statStamina: 14,
+    statPower: 14,
+    statSpeed: 16,
+    level: 1,
+    cardsCollected: 6,
+    cardsNeeded: 30,
+    unlockLevel: 3,
+  ),
+  PaddleModel(
+    id: 'pro_starburst',
+    name: 'Grand Slam Starburst',
+    brand: 'CHAMPION',
+    primaryColor: Color(0xFF1A237E),
+    accentColor: Color(0xFF00E5FF),
+    skinPattern: 'starburst',
+    statSpin: 24,
+    statSwing: 22,
+    statAgility: 16,
+    statAccuracy: 22,
+    statStamina: 20,
+    statPower: 24,
+    statSpeed: 22,
+    level: 3,
+    cardsCollected: 45,
+    cardsNeeded: 45,
     unlockLevel: 4,
   ),
 ];
 
 // ============================================================================
-// GLOBAL GAME STATE: CAREER & LEVELING ENGINE
+// GLOBAL GAME STATE
 // ============================================================================
 class GameState extends ChangeNotifier {
   static final GameState instance = GameState._();
   GameState._();
 
-  // Player Career & Leveling
   int _playerLevel = 1;
   int _playerXp = 0;
   int _xpToNextLevel = 100;
@@ -260,22 +412,19 @@ class GameState extends ChangeNotifier {
   int _careerMatches = 0;
   int _completedStages = 0;
 
-  // Active Selections
   CharacterModel _selectedCharacter = kCharacters[0];
-  CharacterModel _opponentCharacter = kCharacters[3]; // Default vs Jax
+  CharacterModel _opponentCharacter = kCharacters[3];
   PaddleModel _selectedPaddle = kPaddles[0];
   AIDifficulty _difficulty = AIDifficulty.pro;
   bool _soundEnabled = true;
   bool _hapticsEnabled = true;
 
-  // Match Customization
   int _targetScore = 11;
   String _courtVenue = 'Tournament Arena';
   double _gamePace = 1.0;
   bool _isCampaignMatch = false;
   int _activeCampaignStageIndex = 0;
 
-  // Getters
   int get playerLevel => _playerLevel;
   int get playerXp => _playerXp;
   int get xpToNextLevel => _xpToNextLevel;
@@ -298,7 +447,6 @@ class GameState extends ChangeNotifier {
   bool get isCampaignMatch => _isCampaignMatch;
   int get activeCampaignStageIndex => _activeCampaignStageIndex;
 
-  // Award XP and handle Level Ups
   void addMatchExperience({
     required bool wonMatch,
     required int rallyHits,
@@ -336,7 +484,6 @@ class GameState extends ChangeNotifier {
     _courtVenue = stage.venue;
     _difficulty = stage.difficulty;
 
-    // Pick stage boss
     _opponentCharacter = kCharacters.firstWhere(
       (c) => c.id == stage.opponentId,
       orElse: () => kCharacters[1],
