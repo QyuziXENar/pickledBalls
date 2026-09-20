@@ -34,3 +34,7 @@ UPDATE #2:
                 Updated to an 11-second two-stage Valve-style intro matched to audio timing.
                 Added initial black screen pause, slow fade-in, and transition to a procedural Flutter & Dart engine logo screen.
                 Added tap-to-skip functionality.
+
+UDATE #3:
+
+          Added Functions of 1v1
