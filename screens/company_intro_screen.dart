@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import '../widgets/ambient_background.dart';
 import '../widgets/asset_helpers.dart';
 import 'welcome_screen.dart';
 

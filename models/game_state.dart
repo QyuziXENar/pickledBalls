@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 enum AIDifficulty {
   rookie('Rookie (2.5)', 'Casual play, slow returns', 0.8),
@@ -172,7 +173,7 @@ const List<CharacterModel> kCharacters = [
 ];
 
 // ============================================================================
-// EXPANDED 9 PADDLE SKINS WITH 7 DETAILED STATS (REFERENCE IMAGES 2 & 3)
+// PADDLE MODELS
 // ============================================================================
 class PaddleModel {
   final String id;
@@ -180,9 +181,8 @@ class PaddleModel {
   final String brand;
   final Color primaryColor;
   final Color accentColor;
-  final String skinPattern; // Visual style tag
+  final String skinPattern;
 
-  // 7 Detailed RPG Stats (Values from 4 to 25)
   final int statSpin;
   final int statSwing;
   final int statAgility;
@@ -191,7 +191,6 @@ class PaddleModel {
   final int statPower;
   final int statSpeed;
 
-  // Upgrade & Level State
   final int level;
   final int cardsCollected;
   final int cardsNeeded;
@@ -217,7 +216,6 @@ class PaddleModel {
     this.unlockLevel = 1,
   });
 
-  // Normalized Multipliers for Physics Engine
   double get power => 0.70 + (statPower * 0.015);
   double get control => 0.70 + (statAccuracy * 0.015);
   double get spin => 0.65 + (statSpin * 0.018);
@@ -399,11 +397,26 @@ const List<PaddleModel> kPaddles = [
 ];
 
 // ============================================================================
-// GLOBAL GAME STATE
+// GAME STATE WITH STORAGE PERSISTENCE
 // ============================================================================
 class GameState extends ChangeNotifier {
   static final GameState instance = GameState._();
   GameState._();
+
+  static const String _kLevel = 'pb_player_level';
+  static const String _kXp = 'pb_player_xp';
+  static const String _kNextXp = 'pb_xp_to_next';
+  static const String _kWins = 'pb_career_wins';
+  static const String _kMatches = 'pb_career_matches';
+  static const String _kStages = 'pb_completed_stages';
+  static const String _kCharId = 'pb_selected_char_id';
+  static const String _kPaddleId = 'pb_selected_paddle_id';
+  static const String _kSound = 'pb_sound_enabled';
+  static const String _kHaptics = 'pb_haptics_enabled';
+  static const String _kShake = 'pb_shake_enabled';
+  static const String _kVenue = 'pb_court_venue';
+  static const String _kTargetScore = 'pb_target_score';
+  static const String _kPace = 'pb_game_pace';
 
   int _playerLevel = 1;
   int _playerXp = 0;
@@ -418,6 +431,7 @@ class GameState extends ChangeNotifier {
   AIDifficulty _difficulty = AIDifficulty.pro;
   bool _soundEnabled = true;
   bool _hapticsEnabled = true;
+  bool _screenShakeEnabled = true;
 
   int _targetScore = 11;
   String _courtVenue = 'Tournament Arena';
@@ -439,13 +453,77 @@ class GameState extends ChangeNotifier {
   AIDifficulty get difficulty => _difficulty;
   bool get soundEnabled => _soundEnabled;
   bool get hapticsEnabled => _hapticsEnabled;
+  bool get screenShakeEnabled => _screenShakeEnabled;
 
   int get targetScore => _targetScore;
   String get courtVenue => _courtVenue;
-  String get courtTheme => _courtVenue;
   double get gamePace => _gamePace;
   bool get isCampaignMatch => _isCampaignMatch;
   int get activeCampaignStageIndex => _activeCampaignStageIndex;
+
+  Future<void> loadFromStorage() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+
+      _playerLevel = prefs.getInt(_kLevel) ?? 1;
+      _playerXp = prefs.getInt(_kXp) ?? 0;
+      _xpToNextLevel = prefs.getInt(_kNextXp) ?? 100;
+      _careerWins = prefs.getInt(_kWins) ?? 0;
+      _careerMatches = prefs.getInt(_kMatches) ?? 0;
+      _completedStages = prefs.getInt(_kStages) ?? 0;
+
+      final savedCharId = prefs.getString(_kCharId);
+      if (savedCharId != null) {
+        _selectedCharacter = kCharacters.firstWhere(
+          (c) => c.id == savedCharId,
+          orElse: () => kCharacters[0],
+        );
+      }
+
+      final savedPaddleId = prefs.getString(_kPaddleId);
+      if (savedPaddleId != null) {
+        _selectedPaddle = kPaddles.firstWhere(
+          (p) => p.id == savedPaddleId,
+          orElse: () => kPaddles[0],
+        );
+      }
+
+      _soundEnabled = prefs.getBool(_kSound) ?? true;
+      _hapticsEnabled = prefs.getBool(_kHaptics) ?? true;
+      _screenShakeEnabled = prefs.getBool(_kShake) ?? true;
+      _courtVenue = prefs.getString(_kVenue) ?? 'Tournament Arena';
+      _targetScore = prefs.getInt(_kTargetScore) ?? 11;
+      _gamePace = prefs.getDouble(_kPace) ?? 1.0;
+
+      notifyListeners();
+    } catch (e) {
+      debugPrint('Error loading saved GameState: $e');
+    }
+  }
+
+  Future<void> _saveToStorage() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt(_kLevel, _playerLevel);
+      await prefs.setInt(_kXp, _playerXp);
+      await prefs.setInt(_kNextXp, _xpToNextLevel);
+      await prefs.setInt(_kWins, _careerWins);
+      await prefs.setInt(_kMatches, _careerMatches);
+      await prefs.setInt(_kStages, _completedStages);
+
+      await prefs.setString(_kCharId, _selectedCharacter.id);
+      await prefs.setString(_kPaddleId, _selectedPaddle.id);
+
+      await prefs.setBool(_kSound, _soundEnabled);
+      await prefs.setBool(_kHaptics, _hapticsEnabled);
+      await prefs.setBool(_kShake, _screenShakeEnabled);
+      await prefs.setString(_kVenue, _courtVenue);
+      await prefs.setInt(_kTargetScore, _targetScore);
+      await prefs.setDouble(_kPace, _gamePace);
+    } catch (e) {
+      debugPrint('Error saving GameState to disk: $e');
+    }
+  }
 
   void addMatchExperience({
     required bool wonMatch,
@@ -474,6 +552,7 @@ class GameState extends ChangeNotifier {
     }
 
     notifyListeners();
+    _saveToStorage();
   }
 
   void startCampaignStage(int stageIndex) {
@@ -499,12 +578,14 @@ class GameState extends ChangeNotifier {
   void selectCharacter(CharacterModel character) {
     _selectedCharacter = character;
     notifyListeners();
+    _saveToStorage();
   }
 
   void selectPaddle(PaddleModel paddle) {
     if (paddle.unlockLevel <= _playerLevel) {
       _selectedPaddle = paddle;
       notifyListeners();
+      _saveToStorage();
     }
   }
 
@@ -516,27 +597,36 @@ class GameState extends ChangeNotifier {
   void toggleSound(bool val) {
     _soundEnabled = val;
     notifyListeners();
+    _saveToStorage();
   }
 
   void toggleHaptics(bool val) {
     _hapticsEnabled = val;
     notifyListeners();
+    _saveToStorage();
+  }
+
+  void toggleScreenShake(bool val) {
+    _screenShakeEnabled = val;
+    notifyListeners();
+    _saveToStorage();
   }
 
   void setTargetScore(int score) {
     _targetScore = score;
     notifyListeners();
+    _saveToStorage();
   }
 
   void setCourtVenue(String venue) {
     _courtVenue = venue;
     notifyListeners();
+    _saveToStorage();
   }
-
-  void setCourtTheme(String theme) => setCourtVenue(theme);
 
   void setGamePace(double pace) {
     _gamePace = pace;
     notifyListeners();
+    _saveToStorage();
   }
 }

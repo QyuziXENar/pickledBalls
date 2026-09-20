@@ -1,10 +1,13 @@
+import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import '../models/game_state.dart';
+import '../services/lan_multiplayer_manager.dart';
 import '../widgets/ambient_background.dart';
+import '../widgets/asset_helpers.dart';
 import '../widgets/game_components.dart';
 
 enum MatchPhase { intro, serveReady, countdown, activeRally, pointScored, gameOver }
@@ -22,11 +25,30 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
   late Ticker _ticker;
   Duration _lastElapsed = Duration.zero;
 
+  // LAN Multiplayer Controller
+  final LanMultiplayerManager _lan = LanMultiplayerManager.instance;
+  StreamSubscription? _netSub;
+
+  bool _aiTookOver = false;
+  String _aiTakeoverBanner = '';
+
+  bool get _isMultiplayer => _lan.isConnected && !_aiTookOver;
+  bool get _isHost => _lan.isHost;
+  bool get _isGuest => _lan.isGuest;
+
+  // Phase 3: Pause State
+  bool _isPaused = false;
+  bool _showInGameSettings = false;
+
+  // Phase 4.1: Camera Trauma & Screen Shake
+  double _cameraTrauma = 0.0;
+  Offset _shakeOffset = Offset.zero;
+
   // Keyboard Controller
   final FocusNode _keyboardFocusNode = FocusNode();
   final Set<LogicalKeyboardKey> _activeKeys = {};
 
-  // Mobile Virtual Joystick State (Full 360 Degree Control)
+  // Phase 4.4: Adaptive Virtual Joystick
   Offset _joystickKnobOffset = Offset.zero;
   bool _isJoystickActive = false;
   double _joystickInputX = 0.0;
@@ -38,7 +60,11 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
   double _phaseTimer = 0.0;
   int _countdownNumber = 3;
   bool _playerServing = true;
-  String _toastMessage = 'MATCH START';
+
+  // Borderless Esports Banners
+  String _bannerTitle = '';
+  String _bannerSubtitle = '';
+  Color _bannerColor = AppTheme.opticYellow;
   String _timingFeedback = '';
   Color _timingFeedbackColor = AppTheme.opticYellow;
 
@@ -59,7 +85,6 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
   double _playerX = 0.0;
   double _playerTargetX = 0.0;
   double _playerVelocityX = 0.0;
-
   double _playerY = 0.0;
   double _playerTargetY = 0.0;
   double _playerVelocityY = 0.0;
@@ -67,7 +92,7 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
   double _playerSwingAngle = 0.0;
   bool _playerIsSwinging = false;
 
-  // AI State
+  // Opponent Rig
   double _aiX = 0.0;
   double _aiVelocityX = 0.0;
   double _aiSwingAngle = 0.0;
@@ -87,6 +112,12 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
   @override
   void initState() {
     super.initState();
+
+    if (_lan.isConnected) {
+      _netSub = _lan.packetStream.listen(_onNetworkPacket);
+      _lan.addListener(_onLanConnectionStateChanged);
+    }
+
     _startIntroSequence();
     _ticker = createTicker(_onGameTick)..start();
 
@@ -97,17 +128,197 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
 
   @override
   void dispose() {
+    _netSub?.cancel();
     _ticker.dispose();
     _keyboardFocusNode.dispose();
+    _lan.removeListener(_onLanConnectionStateChanged);
+
+    if (_lan.isConnected) {
+      _lan.disconnect();
+    }
     super.dispose();
+  }
+
+  // ==========================================================================
+  // PHASE 4.1: CAMERA TRAUMA & SCREEN SHAKE
+  // ==========================================================================
+  void _addTrauma(double amount) {
+    if (!GameState.instance.screenShakeEnabled) return;
+    setState(() {
+      _cameraTrauma = (_cameraTrauma + amount).clamp(0.0, 1.0);
+    });
+  }
+
+  // ==========================================================================
+  // PHASE 3: PAUSE & FORFEIT LOGIC
+  // ==========================================================================
+  void _togglePause() {
+    if (_isMultiplayer) {
+      _showMultiplayerForfeitDialog();
+      return;
+    }
+
+    setState(() {
+      _isPaused = !_isPaused;
+      _showInGameSettings = false;
+      if (!_isPaused) {
+        _lastElapsed = Duration.zero;
+      }
+    });
+    AppAudio.playSfx('click.mp3');
+  }
+
+  void _showMultiplayerForfeitDialog() {
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFF0F1B26),
+          title: const Text('FORFEIT MATCH?', style: TextStyle(fontWeight: FontWeight.w900, color: Colors.white)),
+          content: Text(
+            _isHost
+                ? 'You are the Host. Leaving will terminate the match for both players.'
+                : 'Leaving will forfeit the match. Host will continue playing against AI.',
+            style: const TextStyle(fontSize: 12, color: AppTheme.textMuted),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('STAY & PLAY', style: TextStyle(color: Colors.white70)),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFFF5252)),
+              onPressed: () {
+                Navigator.pop(ctx);
+                _lan.disconnect();
+                Navigator.pop(context);
+              },
+              child: const Text('FORFEIT MATCH', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _onLanConnectionStateChanged() {
+    if (!mounted) return;
+
+    if (_lan.status != LanStatus.connected && !_aiTookOver) {
+      if (_isHost) {
+        setState(() {
+          _aiTookOver = true;
+          _aiTakeoverBanner = 'RIVAL LEFT! SWITCHING TO AI...';
+        });
+        AppAudio.playSfx('fault_buzzer.mp3');
+        Future.delayed(const Duration(seconds: 3), () {
+          if (mounted) setState(() => _aiTakeoverBanner = '');
+        });
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('⚠️ Host ended the match. Returning to lobby...')),
+        );
+        Navigator.pop(context);
+      }
+    }
+  }
+
+  void _onNetworkPacket(Map<String, dynamic> packet) {
+    if (!mounted) return;
+
+    if (_isHost) {
+      if (packet['type'] == 'pos') {
+        final gx = (packet['x'] as num).toDouble();
+        setState(() {
+          _aiX = -gx;
+          _aiIsSwinging = packet['swing'] == true;
+          if (_aiIsSwinging) _aiSwingAngle = 0.2;
+        });
+      } else if (packet['type'] == 'hit') {
+        setState(() {
+          _ballVx = -(packet['vx'] as num).toDouble();
+          _ballVy = -(packet['vy'] as num).toDouble();
+          _ballVz = (packet['vz'] as num).toDouble();
+          _ballCurve = -(packet['curve'] as num).toDouble();
+          _triggerAiSwing();
+          _currentRally++;
+          if (_currentRally > _longestRally) _longestRally = _currentRally;
+          if (packet['isSmash'] == true) _totalSmashes++;
+        });
+
+        if (packet['isSmash'] == true) {
+          _addTrauma(0.5);
+          AppAudio.playSfx('paddle_smash.mp3');
+        } else {
+          AppAudio.playSfx('paddle_drive.mp3');
+        }
+      }
+    } else if (_isGuest) {
+      if (packet['type'] == 'tick') {
+        setState(() {
+          _ballX = -(packet['bx'] as num).toDouble();
+          _ballY = 1.0 - (packet['by'] as num).toDouble();
+          _ballZ = (packet['bz'] as num).toDouble();
+          _ballVx = -(packet['bvx'] as num).toDouble();
+          _ballVy = -(packet['bvy'] as num).toDouble();
+          _ballVz = (packet['bvz'] as num).toDouble();
+          _ballCurve = -(packet['curve'] as num).toDouble();
+
+          _aiX = -(packet['p1x'] as num).toDouble();
+          _aiVelocityX = -(packet['p1vx'] as num).toDouble();
+          _aiIsSwinging = packet['p1swing'] == true;
+          if (_aiIsSwinging) _aiSwingAngle = 0.2;
+
+          _playerScore = packet['score2'] as int;
+          _aiScore = packet['score1'] as int;
+
+          final phaseName = packet['phase'] as String;
+          _phase = MatchPhase.values.firstWhere(
+            (p) => p.name == phaseName,
+            orElse: () => MatchPhase.activeRally,
+          );
+          _countdownNumber = packet['countdown'] as int? ?? 3;
+
+          final pointWinner = packet['pointWinner'] as String?;
+          final pointReason = packet['pointReason'] as String? ?? '';
+          if (_phase == MatchPhase.pointScored && pointWinner != null) {
+            if (pointWinner == 'p2') {
+              _bannerTitle = 'POINT: YOU!';
+              _bannerSubtitle = pointReason;
+              _bannerColor = const Color(0xFF00E676);
+              AppAudio.playSfx('point_cheer.mp3');
+            } else {
+              _bannerTitle = 'POINT: OPPONENT!';
+              _bannerSubtitle = pointReason;
+              _bannerColor = const Color(0xFFFF5252);
+              AppAudio.playSfx('fault_buzzer.mp3');
+            }
+          } else if (_phase == MatchPhase.intro) {
+            _bannerTitle = '1v1 DUEL START';
+            _bannerSubtitle = 'FIRST TO ${packet['targetScore'] ?? 11}';
+            _bannerColor = AppTheme.opticYellow;
+          } else if (_phase == MatchPhase.serveReady) {
+            final server = packet['server'] as String?;
+            _bannerTitle = server == 'p2' ? 'YOUR SERVE' : 'OPPONENT SERVING';
+            _bannerSubtitle = 'PREPARE FOR RETURN';
+            _bannerColor = const Color(0xFF00E5FF);
+          }
+        });
+      }
+    }
   }
 
   void _handleKeyEvent(KeyEvent event) {
     if (event is KeyDownEvent) {
-      _activeKeys.add(event.logicalKey);
+      if (event.logicalKey == LogicalKeyboardKey.escape || event.logicalKey == LogicalKeyboardKey.keyP) {
+        _togglePause();
+        return;
+      }
 
-      if (event.logicalKey == LogicalKeyboardKey.space ||
-          event.logicalKey == LogicalKeyboardKey.keyJ) {
+      if (_isPaused) return;
+
+      _activeKeys.add(event.logicalKey);
+      if (event.logicalKey == LogicalKeyboardKey.space || event.logicalKey == LogicalKeyboardKey.keyJ) {
         _triggerPlayerSwing(ShotType.normal);
       } else if (event.logicalKey == LogicalKeyboardKey.shiftLeft ||
           event.logicalKey == LogicalKeyboardKey.shiftRight ||
@@ -122,7 +333,9 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
   void _startIntroSequence() {
     setState(() {
       _phase = MatchPhase.intro;
-      _toastMessage = _getMatchSituationBanner();
+      _bannerTitle = _isMultiplayer ? '1v1 DUEL START' : 'MATCH START';
+      _bannerSubtitle = _getMatchSituationBanner();
+      _bannerColor = AppTheme.opticYellow;
       _phaseTimer = 1.4;
       _blitzActive = false;
       _resetBallPosition();
@@ -161,7 +374,8 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
 
     setState(() {
       _phase = MatchPhase.activeRally;
-      _toastMessage = '';
+      _bannerTitle = '';
+      _bannerSubtitle = '';
       _timingFeedback = '';
 
       if (_playerServing) {
@@ -176,53 +390,86 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
         _triggerAiSwing();
       }
     });
+
+    AppAudio.playSfx('paddle_drive.mp3');
   }
 
   void _onGameTick(Duration elapsed) {
+    if (_isPaused) {
+      _lastElapsed = elapsed;
+      return;
+    }
+
     final dt = (elapsed - _lastElapsed).inMicroseconds / 1000000.0;
     _lastElapsed = elapsed;
     if (dt <= 0 || dt > 0.05) return;
 
     setState(() {
-      if (_phase == MatchPhase.intro) {
-        _phaseTimer -= dt;
-        if (_phaseTimer <= 0) {
-          _phase = MatchPhase.serveReady;
-          _toastMessage = _playerServing ? 'PLAYER 1 TO SERVE' : 'OPPONENT TO SERVE';
-          _phaseTimer = 1.0;
-        }
-        return;
+      // 1. CAMERA TRAUMA DECAY (Phase 4.1)
+      if (_cameraTrauma > 0) {
+        _cameraTrauma = math.max(0.0, _cameraTrauma - dt * 2.8);
+        final intensity = _cameraTrauma * _cameraTrauma;
+        final rng = math.Random();
+        _shakeOffset = Offset(
+          (rng.nextDouble() * 2 - 1) * 16.0 * intensity,
+          (rng.nextDouble() * 2 - 1) * 16.0 * intensity,
+        );
+      } else {
+        _shakeOffset = Offset.zero;
       }
 
-      if (_phase == MatchPhase.serveReady) {
-        _phaseTimer -= dt;
-        if (_phaseTimer <= 0) {
-          _phase = MatchPhase.countdown;
-          _countdownNumber = 3;
-          _phaseTimer = 0.85;
-        }
-        return;
-      }
-
-      if (_phase == MatchPhase.countdown) {
-        _phaseTimer -= dt;
-        if (_phaseTimer <= 0) {
-          _countdownNumber--;
-          if (_countdownNumber > 0) {
-            _phaseTimer = 0.85;
-          } else {
-            _triggerServe();
+      // 2. INTRO / COUNTDOWN
+      if (!_isMultiplayer || _isHost) {
+        if (_phase == MatchPhase.intro) {
+          _phaseTimer -= dt;
+          if (_phaseTimer <= 0) {
+            _phase = MatchPhase.serveReady;
+            _bannerTitle = _playerServing ? 'YOUR SERVE' : 'OPPONENT SERVING';
+            _bannerSubtitle = 'PREPARE FOR RETURN';
+            _bannerColor = const Color(0xFF00E5FF);
+            _phaseTimer = 1.0;
           }
+          _broadcastHostState();
+          return;
         }
-        return;
+
+        if (_phase == MatchPhase.serveReady) {
+          _phaseTimer -= dt;
+          if (_phaseTimer <= 0) {
+            _phase = MatchPhase.countdown;
+            _countdownNumber = 3;
+            _phaseTimer = 0.85;
+            AppAudio.playSfx('beep.mp3');
+          }
+          _broadcastHostState();
+          return;
+        }
+
+        if (_phase == MatchPhase.countdown) {
+          _phaseTimer -= dt;
+          if (_phaseTimer <= 0) {
+            _countdownNumber--;
+            if (_countdownNumber > 0) {
+              _phaseTimer = 0.85;
+              AppAudio.playSfx('beep.mp3');
+            } else {
+              _triggerServe();
+            }
+          }
+          _broadcastHostState();
+          return;
+        }
       }
 
-      if (_phase != MatchPhase.activeRally) return;
+      if (_phase != MatchPhase.activeRally) {
+        if (_isMultiplayer && _isHost) _broadcastHostState();
+        return;
+      }
 
       final state = GameState.instance;
       final character = state.selectedCharacter;
 
-      // 1. Mobile Virtual Joystick 360 Movement (X & Y Depth)
+      // 3. JOYSTICK MOVEMENT
       if (_isJoystickActive) {
         final joySpeedX = 2.6 * character.moveSpeed;
         final joySpeedY = 1.5 * character.moveSpeed;
@@ -235,41 +482,40 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
         }
       }
 
-      // 2. Keyboard 2D Movement (WASD / Arrow Keys)
       final keySpeedX = 2.4 * character.moveSpeed;
       final keySpeedY = 1.4 * character.moveSpeed;
 
-      // Lateral
-      if (_activeKeys.contains(LogicalKeyboardKey.keyA) ||
-          _activeKeys.contains(LogicalKeyboardKey.arrowLeft)) {
+      if (_activeKeys.contains(LogicalKeyboardKey.keyA) || _activeKeys.contains(LogicalKeyboardKey.arrowLeft)) {
         _playerTargetX = (_playerTargetX - keySpeedX * dt).clamp(-0.92, 0.92);
       }
-      if (_activeKeys.contains(LogicalKeyboardKey.keyD) ||
-          _activeKeys.contains(LogicalKeyboardKey.arrowRight)) {
+      if (_activeKeys.contains(LogicalKeyboardKey.keyD) || _activeKeys.contains(LogicalKeyboardKey.arrowRight)) {
         _playerTargetX = (_playerTargetX + keySpeedX * dt).clamp(-0.92, 0.92);
       }
-      // Depth
-      if (_activeKeys.contains(LogicalKeyboardKey.keyW) ||
-          _activeKeys.contains(LogicalKeyboardKey.arrowUp)) {
+      if (_activeKeys.contains(LogicalKeyboardKey.keyW) || _activeKeys.contains(LogicalKeyboardKey.arrowUp)) {
         _playerTargetY = (_playerTargetY + keySpeedY * dt).clamp(-0.18, 0.34);
       }
-      if (_activeKeys.contains(LogicalKeyboardKey.keyS) ||
-          _activeKeys.contains(LogicalKeyboardKey.arrowDown)) {
+      if (_activeKeys.contains(LogicalKeyboardKey.keyS) || _activeKeys.contains(LogicalKeyboardKey.arrowDown)) {
         _playerTargetY = (_playerTargetY - keySpeedY * dt).clamp(-0.18, 0.34);
       }
 
-      // Smooth Position Interpolation
       final oldPlayerX = _playerX;
       final oldPlayerY = _playerY;
       final responsiveness = 18.0 * character.moveSpeed;
 
       _playerX += (_playerTargetX - _playerX) * math.min(1.0, responsiveness * dt);
       _playerY += (_playerTargetY - _playerY) * math.min(1.0, responsiveness * dt);
-
       _playerVelocityX = (_playerX - oldPlayerX) / dt;
       _playerVelocityY = (_playerY - oldPlayerY) / dt;
 
-      // 3. Swing Decay
+      if (_isMultiplayer && _isGuest) {
+        _lan.sendPacket({
+          'type': 'pos',
+          'x': _playerX,
+          'y': _playerY,
+          'swing': _playerIsSwinging,
+        });
+      }
+
       if (_playerIsSwinging) {
         _playerSwingAngle += 14.0 * dt;
         if (_playerSwingAngle >= math.pi) {
@@ -285,68 +531,101 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
         }
       }
 
-      // 4. Ball Physics
-      _ballVx += _ballCurve * dt * 48.0;
-      _ballX += _ballVx * dt;
-      _ballY += _ballVy * dt;
-      _ballZ += _ballVz * dt;
-      _ballVz -= _gravity * dt;
+      // 4. BALL PHYSICS
+      if (!_isMultiplayer || _isHost) {
+        _ballVx += _ballCurve * dt * 48.0;
+        _ballX += _ballVx * dt;
+        _ballY += _ballVy * dt;
+        _ballZ += _ballVz * dt;
+        _ballVz -= _gravity * dt;
 
-      // Sideline In-bounds Rebound
-      if (_ballX <= -0.92) {
-        _ballX = -0.92;
-        _ballVx = -_ballVx * 0.92;
-        _ballCurve *= -0.5;
-      } else if (_ballX >= 0.92) {
-        _ballX = 0.92;
-        _ballVx = -_ballVx * 0.92;
-        _ballCurve *= -0.5;
-      }
+        if (_ballX <= -0.92) {
+          _ballX = -0.92;
+          _ballVx = -_ballVx * 0.92;
+          _ballCurve *= -0.5;
+          AppAudio.playSfx('ball_bounce.mp3');
+        } else if (_ballX >= 0.92) {
+          _ballX = 0.92;
+          _ballVx = -_ballVx * 0.92;
+          _ballCurve *= -0.5;
+          AppAudio.playSfx('ball_bounce.mp3');
+        }
 
-      // Floor Bounce
-      if (_ballZ <= 0.0) {
-        _ballZ = 0.0;
-        _ballVz = -_ballVz * 0.78;
-      }
+        if (_ballZ <= 0.0) {
+          _ballZ = 0.0;
+          if (_ballVz.abs() > 0.45) {
+            AppAudio.playSfx('ball_bounce.mp3');
+          }
+          _ballVz = -_ballVz * 0.78;
+        }
 
-      // Net Collision Check (Y = 0.50, Height Z = 0.42m)
-      if ((_ballY - 0.50).abs() < 0.03 && _ballZ < 0.42) {
-        _pointEnded(playerWonPoint: _ballVy < 0, reason: 'NET FAULT');
-        return;
-      }
+        if ((_ballY - 0.50).abs() < 0.03 && _ballZ < 0.42) {
+          _addTrauma(0.35); // Screen shake on net fault
+          AppAudio.playSfx('fault_buzzer.mp3');
+          _pointEnded(playerWonPoint: _ballVy < 0, reason: 'NET FAULT');
+          return;
+        }
 
-      // Tactical AI Engine
-      final aiChar = state.opponentCharacter;
-      final aiMultiplier = state.difficulty.speedMultiplier;
-      final oldAiX = _aiX;
-      _aiX += (_ballX - _aiX) * math.min(1.0, (5.2 * aiChar.moveSpeed * aiMultiplier) * dt);
-      _aiX = _aiX.clamp(-0.85, 0.85);
-      _aiVelocityX = (_aiX - oldAiX) / dt;
+        if (!_isMultiplayer || _aiTookOver) {
+          final aiChar = state.opponentCharacter;
+          final aiMultiplier = state.difficulty.speedMultiplier;
+          final oldAiX = _aiX;
+          _aiX += (_ballX - _aiX) * math.min(1.0, (5.2 * aiChar.moveSpeed * aiMultiplier) * dt);
+          _aiX = _aiX.clamp(-0.85, 0.85);
+          _aiVelocityX = (_aiX - oldAiX) / dt;
 
-      // AI Active Shot Execution
-      if (_ballVy > 0 && _ballY >= 0.88 && _ballY <= 1.05) {
-        final distToAi = (_ballX - _aiX).abs();
-        if (distToAi < (0.28 * aiChar.reachFactor) && _ballZ > 0.05) {
-          _triggerAiSwing();
-          _executeTacticalAiShot(aiChar, state.gamePace);
-          _currentRally++;
-          if (_currentRally > _longestRally) _longestRally = _currentRally;
+          if (_ballVy > 0 && _ballY >= 0.88 && _ballY <= 1.05) {
+            final distToAi = (_ballX - _aiX).abs();
+            if (distToAi < (0.28 * aiChar.reachFactor) && _ballZ > 0.05) {
+              _triggerAiSwing();
+              _executeTacticalAiShot(aiChar, state.gamePace);
+              _currentRally++;
+              if (_currentRally > _longestRally) _longestRally = _currentRally;
+            }
+          }
+        }
+
+        if (_ballY > 1.15) {
+          _pointEnded(playerWonPoint: true, reason: 'WINNER');
+        } else if (_ballY < -0.22) {
+          _pointEnded(playerWonPoint: false, reason: 'MISSED BALL');
+        }
+
+        if (_isMultiplayer && _isHost) {
+          _broadcastHostState();
         }
       }
+    });
+  }
 
-      // Out of bounds / Missed Ball Check
-      if (_ballY > 1.15) {
-        _pointEnded(playerWonPoint: true, reason: 'WINNER');
-      } else if (_ballY < -0.22) {
-        _pointEnded(playerWonPoint: false, reason: 'MISSED BALL');
-      }
+  void _broadcastHostState({String? pointWinner, String? pointReason}) {
+    _lan.sendPacket({
+      'type': 'tick',
+      'bx': _ballX,
+      'by': _ballY,
+      'bz': _ballZ,
+      'bvx': _ballVx,
+      'bvy': _ballVy,
+      'bvz': _ballVz,
+      'curve': _ballCurve,
+      'p1x': _playerX,
+      'p1y': _playerY,
+      'p1vx': _playerVelocityX,
+      'p1swing': _playerIsSwinging,
+      'score1': _playerScore,
+      'score2': _aiScore,
+      'phase': _phase.name,
+      'countdown': _countdownNumber,
+      'server': _playerServing ? 'p1' : 'p2',
+      'targetScore': GameState.instance.targetScore,
+      'pointWinner': pointWinner,
+      'pointReason': pointReason,
     });
   }
 
   void _executeTacticalAiShot(CharacterModel aiChar, double pace) {
     final rng = math.Random();
     _aiBlitzEnergy = (_aiBlitzEnergy + 0.22).clamp(0.0, 1.0);
-
     final playerIsDeep = _playerY < 0.05;
 
     if (_aiBlitzEnergy >= 1.0) {
@@ -358,6 +637,8 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
       _ballVx = (_playerX > 0 ? -0.65 : 0.65);
       _timingFeedback = '⚠️ AI UNLEASHED ${aiChar.abilityName.toUpperCase()}!';
       _timingFeedbackColor = aiChar.accentColor;
+      _addTrauma(0.65);
+      AppAudio.playSfx('blitz_super.mp3');
     } else if (_ballZ > 1.15) {
       _blitzActive = false;
       _ballVy = -0.96 * aiChar.swingPower * pace;
@@ -365,6 +646,8 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
       _ballVx = (_playerX > 0 ? -0.55 : 0.55) + (rng.nextDouble() - 0.5) * 0.2;
       _timingFeedback = '⚡ AI OVERHEAD SMASH!';
       _timingFeedbackColor = const Color(0xFFFF5252);
+      _addTrauma(0.45);
+      AppAudio.playSfx('paddle_smash.mp3');
     } else if (playerIsDeep && rng.nextDouble() < 0.38 && _currentRally > 1) {
       _blitzActive = false;
       _ballVy = -0.48 * pace;
@@ -372,15 +655,22 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
       _ballVx = (rng.nextDouble() - 0.5) * 0.35;
       _timingFeedback = '🎯 AI TACTICAL DINK!';
       _timingFeedbackColor = AppTheme.mintAccent;
+      AppAudio.playSfx('paddle_drive.mp3');
     } else {
       _blitzActive = false;
       _ballVy = -0.74 * aiChar.swingPower * pace;
       _ballVz = 2.1;
       _ballVx = (_playerX > 0 ? -0.45 : 0.45) + (rng.nextDouble() - 0.5) * 0.25;
+      AppAudio.playSfx('paddle_drive.mp3');
     }
   }
 
+  // ==========================================================================
+  // PHASE 4.2: LAYERED HAPTICS & IMPACT AUDIO
+  // ==========================================================================
   void _triggerPlayerSwing(ShotType type) {
+    if (_isPaused) return;
+
     _playerIsSwinging = true;
     _playerSwingAngle = 0.1;
 
@@ -401,67 +691,67 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
 
       _playerBlitzEnergy = (_playerBlitzEnergy + (isPerfect ? 0.35 : 0.20)).clamp(0.0, 1.0);
 
-      if ((isSmash || type == ShotType.signatureBlitz) && _playerBlitzEnergy >= 1.0) {
-        _playerBlitzEnergy = 0.0;
-        _blitzActive = true;
-        _blitzTrailColor = character.accentColor;
-        _totalSmashes++;
-
-        if (character.id == 'aria') {
-          _ballVy = 1.25 * paddle.power * pace;
-          _ballVz = 1.3;
-          _ballVx = (_ballX - _playerX) * 1.5;
-          _ballCurve = 0;
-        } else if (character.id == 'marcus') {
-          _ballVy = 1.15 * paddle.power * pace;
-          _ballVz = 1.0;
-          _ballVx = (_ballX - _playerX) * 1.2;
-          _ballCurve = 0;
-        } else if (character.id == 'elena') {
-          _ballVy = 0.95 * paddle.power * pace;
-          _ballVz = 1.6;
-          _ballVx = (_ballX - _playerX) * 0.8;
-          _ballCurve = (_playerX > 0 ? -1.8 : 1.8) * paddle.spin;
+      // Layered Haptic Feedback (Point 4.2)
+      if (state.hapticsEnabled) {
+        if (isSmash || type == ShotType.signatureBlitz) {
+          HapticFeedback.heavyImpact();
         } else {
-          _ballVy = 1.08 * paddle.power * pace;
-          _ballVz = 1.4;
-          _ballVx = (_ballX - _playerX) * 1.3;
-          _ballCurve = 0;
+          HapticFeedback.mediumImpact();
         }
+      }
 
-        _timingFeedback = '🌟 SIGNATURE ${character.abilityName.toUpperCase()}!';
-        _timingFeedbackColor = character.accentColor;
+      // Audio & Screen Shake Trauma
+      if (type == ShotType.signatureBlitz || (_playerBlitzEnergy >= 1.0 && isSmash)) {
+        _addTrauma(0.85); // Massive rumble on super shot
+        AppAudio.playSfx('blitz_super.mp3');
+      } else if (isSmash) {
+        _addTrauma(0.55); // Solid punch on power smash
+        AppAudio.playSfx('paddle_smash.mp3');
+      } else {
+        AppAudio.playSfx('paddle_drive.mp3');
+      }
+
+      if (isPerfect) {
+        _timingFeedback = isSmash ? '⚡ PERFECT SMASH!' : '🔥 PERFECT DRIVE!';
+        _timingFeedbackColor = AppTheme.opticYellow;
+      } else if (_ballY > _playerY + 0.06) {
+        _timingFeedback = 'EARLY CONTACT';
+        _timingFeedbackColor = AppTheme.mintAccent;
+      } else {
+        _timingFeedback = 'LATE CONTACT';
+        _timingFeedbackColor = Colors.orangeAccent;
+      }
+
+      final combinedPower = character.swingPower * paddle.power * pace;
+      final outVy = (isSmash ? 0.96 : 0.72) * combinedPower;
+      final outVz = isSmash ? 1.35 : 2.2;
+      final outVx = (_ballX - _playerX) * 1.25 + ((math.Random().nextDouble() - 0.5) * 0.25);
+      final outCurve = ((_ballX - _playerX) / 0.3) * paddle.spin * 0.6;
+
+      if (_isMultiplayer && _isGuest) {
+        _lan.sendPacket({
+          'type': 'hit',
+          'isSmash': isSmash,
+          'vx': outVx,
+          'vy': outVy,
+          'vz': outVz,
+          'curve': outCurve,
+        });
       } else {
         _blitzActive = false;
         if (isSmash) _totalSmashes++;
-
-        if (isPerfect) {
-          _timingFeedback = isSmash ? '⚡ PERFECT SMASH!' : '🔥 PERFECT DRIVE!';
-          _timingFeedbackColor = AppTheme.opticYellow;
-        } else if (_ballY > _playerY + 0.06) {
-          _timingFeedback = 'EARLY CONTACT';
-          _timingFeedbackColor = AppTheme.mintAccent;
-        } else {
-          _timingFeedback = 'LATE CONTACT';
-          _timingFeedbackColor = Colors.orangeAccent;
-        }
-
-        final combinedPower = character.swingPower * paddle.power * pace;
-        _ballVy = (isSmash ? 0.96 : 0.72) * combinedPower;
-        _ballVz = isSmash ? 1.35 : 2.2;
-        _ballVx = (_ballX - _playerX) * 1.25 + ((math.Random().nextDouble() - 0.5) * 0.25);
-        _ballCurve = ((_ballX - _playerX) / 0.3) * paddle.spin * 0.6;
-      }
-
-      _currentRally++;
-      if (_currentRally > _longestRally) _longestRally = _currentRally;
-
-      if (state.hapticsEnabled) {
-        HapticFeedback.mediumImpact();
+        _ballVy = outVy;
+        _ballVz = outVz;
+        _ballVx = outVx;
+        _ballCurve = outCurve;
+        _currentRally++;
+        if (_currentRally > _longestRally) _longestRally = _currentRally;
       }
     } else if (_phase == MatchPhase.activeRally && _ballVy < 0 && distY < 0.3) {
       _timingFeedback = 'WHIFF!';
       _timingFeedbackColor = const Color(0xFFFF5252);
+      if (state.hapticsEnabled) HapticFeedback.heavyImpact();
+      AppAudio.playSfx('fault_buzzer.mp3');
     }
   }
 
@@ -475,17 +765,32 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
 
     setState(() {
       _phase = MatchPhase.pointScored;
-      _toastMessage = playerWonPoint ? 'POINT: YOU ($reason)' : 'POINT: OPPONENT ($reason)';
+
       if (playerWonPoint) {
         _playerScore++;
         _playerServing = true;
+        _bannerTitle = 'POINT: YOU!';
+        _bannerSubtitle = reason;
+        _bannerColor = const Color(0xFF00E676);
+        AppAudio.playSfx('point_cheer.mp3');
       } else {
         _aiScore++;
         _playerServing = false;
+        _bannerTitle = 'POINT: OPPONENT!';
+        _bannerSubtitle = reason;
+        _bannerColor = const Color(0xFFFF5252);
+        AppAudio.playSfx('fault_buzzer.mp3');
       }
       _currentRally = 0;
       _blitzActive = false;
     });
+
+    if (_isMultiplayer && _isHost) {
+      _broadcastHostState(
+        pointWinner: playerWonPoint ? 'p1' : 'p2',
+        pointReason: reason,
+      );
+    }
 
     final playerWonMatch = _playerScore >= target && (_playerScore - _aiScore) >= 2;
     final aiWonMatch = _aiScore >= target && (_aiScore - _playerScore) >= 2;
@@ -498,8 +803,8 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
           rallyHits: _longestRally,
           smashes: _totalSmashes,
         );
-
         setState(() => _phase = MatchPhase.gameOver);
+        AppAudio.playSfx('match_win.mp3');
       } else {
         _startIntroSequence();
       }
@@ -508,6 +813,7 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
 
   void _resetFullMatch() {
     setState(() {
+      _isPaused = false;
       _playerScore = 0;
       _aiScore = 0;
       _currentRally = 0;
@@ -522,7 +828,7 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
   }
 
   void _onPointerHover(PointerHoverEvent event, Size screenSize) {
-    if (_isJoystickActive) return;
+    if (_isJoystickActive || _isPaused) return;
     final courtCenterX = screenSize.width / 2;
     final halfCourtWidth = math.min(screenSize.width * 0.44, 280.0);
     final normalizedX = ((event.localPosition.dx - courtCenterX) / halfCourtWidth).clamp(-0.92, 0.92);
@@ -530,6 +836,7 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
   }
 
   void _onPointerDown(PointerDownEvent event) {
+    if (_isPaused) return;
     if (event.kind == PointerDeviceKind.mouse) {
       if (_phase != MatchPhase.activeRally && _phase != MatchPhase.countdown) return;
       final isRightClick = event.buttons == kSecondaryMouseButton;
@@ -540,6 +847,13 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
   @override
   Widget build(BuildContext context) {
     final state = GameState.instance;
+
+    final opponentChar = _isMultiplayer
+        ? kCharacters.firstWhere((c) => c.id == _lan.opponentAthleteId, orElse: () => kCharacters[3])
+        : state.opponentCharacter;
+    final opponentPaddle = _isMultiplayer
+        ? kPaddles.firstWhere((p) => p.id == _lan.opponentPaddleId, orElse: () => kPaddles[0])
+        : kPaddles[0];
 
     return Scaffold(
       backgroundColor: const Color(0xFF070B09),
@@ -554,133 +868,172 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
               onKeyEvent: _handleKeyEvent,
               child: Stack(
                 children: [
-                  // 1. Perspective 3D Court Canvas
+                  // 1. 3D COURT CANVAS WITH DYNAMIC CAMERA SHAKE (Point 4.1)
                   Positioned.fill(
-                    child: Listener(
-                      onPointerDown: _onPointerDown,
-                      child: MouseRegion(
-                        cursor: SystemMouseCursors.none,
-                        onHover: (e) => _onPointerHover(e, screenSize),
-                        child: CustomPaint(
-                          size: screenSize,
-                          painter: PerspectiveCourtPainter(
-                            playerX: _playerX,
-                            playerY: _playerY,
-                            playerVelocityX: _playerVelocityX,
-                            playerVelocityY: _playerVelocityY,
-                            playerSwingAngle: _playerSwingAngle,
-                            playerIsSwinging: _playerIsSwinging,
-                            playerColor: state.selectedCharacter.bodyColor,
-                            playerAccent: state.selectedCharacter.accentColor,
-                            aiX: _aiX,
-                            aiVelocityX: _aiVelocityX,
-                            aiSwingAngle: _aiSwingAngle,
-                            aiIsSwinging: _aiIsSwinging,
-                            aiColor: state.opponentCharacter.bodyColor,
-                            aiAccent: state.opponentCharacter.accentColor,
-                            ballX: _ballX,
-                            ballY: _ballY,
-                            ballZ: _ballZ,
-                            ballVx: _ballVx,
-                            ballVy: _ballVy,
-                            ballVz: _ballVz,
-                            blitzActive: _blitzActive,
-                            blitzColor: _blitzTrailColor,
-                            equippedPaddle: state.selectedPaddle,
-                            courtVenue: state.courtVenue,
+                    child: Transform.translate(
+                      offset: _shakeOffset, // Live camera shake offset!
+                      child: Listener(
+                        onPointerDown: _onPointerDown,
+                        child: MouseRegion(
+                          cursor: SystemMouseCursors.none,
+                          onHover: (e) => _onPointerHover(e, screenSize),
+                          child: CustomPaint(
+                            size: screenSize,
+                            painter: PerspectiveCourtPainter(
+                              playerX: _playerX,
+                              playerY: _playerY,
+                              playerVelocityX: _playerVelocityX,
+                              playerVelocityY: _playerVelocityY,
+                              playerSwingAngle: _playerSwingAngle,
+                              playerIsSwinging: _playerIsSwinging,
+                              playerColor: state.selectedCharacter.bodyColor,
+                              playerAccent: state.selectedCharacter.accentColor,
+                              aiX: _aiX,
+                              aiVelocityX: _aiVelocityX,
+                              aiSwingAngle: _aiSwingAngle,
+                              aiIsSwinging: _aiIsSwinging,
+                              aiColor: opponentChar.bodyColor,
+                              aiAccent: opponentChar.accentColor,
+                              ballX: _ballX,
+                              ballY: _ballY,
+                              ballZ: _ballZ,
+                              ballVx: _ballVx,
+                              ballVy: _ballVy,
+                              ballVz: _ballVz,
+                              blitzActive: _blitzActive,
+                              blitzColor: _blitzTrailColor,
+                              equippedPaddle: state.selectedPaddle,
+                              courtVenue: state.courtVenue,
+                            ),
                           ),
                         ),
                       ),
                     ),
                   ),
 
-                  // 2. Top Match Scoreboard
+                  // 2. TOP MATCH SCOREBOARD & PAUSE BUTTON
                   Positioned(
                     top: 16,
                     left: 16,
                     right: 16,
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
                       children: [
-                        IconButton(
-                          style: IconButton.styleFrom(backgroundColor: AppTheme.glassFill),
-                          icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 18, color: Colors.white),
-                          onPressed: () => Navigator.pop(context),
-                        ),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF0D1B16),
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(color: Colors.white12),
-                          ),
-                          child: Row(
-                            children: [
-                              Text('${state.selectedCharacter.name.split(" ")[0].toUpperCase()}: $_playerScore',
-                                  style: TextStyle(color: state.selectedCharacter.bodyColor, fontWeight: FontWeight.w900, fontSize: 13)),
-                              const Padding(
-                                padding: EdgeInsets.symmetric(horizontal: 12),
-                                child: Text('•', style: TextStyle(color: Colors.white30)),
-                              ),
-                              Text('${state.opponentCharacter.name.split(" ")[0].toUpperCase()}: $_aiScore',
-                                  style: TextStyle(color: state.opponentCharacter.bodyColor, fontWeight: FontWeight.w900, fontSize: 13)),
-                            ],
-                          ),
-                        ),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                          decoration: BoxDecoration(
-                            color: AppTheme.glassFill,
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                          child: Text(
-                            'FIRST TO ${state.targetScore}',
-                            style: const TextStyle(color: AppTheme.mintAccent, fontSize: 10, fontWeight: FontWeight.bold),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  // 3. Central Blitz Energy Gauge
-                  Positioned(
-                    top: 68,
-                    left: 0,
-                    right: 0,
-                    child: Center(
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: Colors.black87,
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(
-                            color: _playerBlitzEnergy >= 1.0 ? AppTheme.opticYellow : Colors.white12,
-                          ),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            Icon(Icons.bolt, size: 16, color: _playerBlitzEnergy >= 1.0 ? AppTheme.opticYellow : Colors.white38),
-                            const SizedBox(width: 6),
-                            SizedBox(
-                              width: 110,
-                              child: ClipRRect(
-                                borderRadius: BorderRadius.circular(4),
-                                child: LinearProgressIndicator(
-                                  value: _playerBlitzEnergy,
-                                  minHeight: 4,
-                                  backgroundColor: Colors.white12,
-                                  valueColor: AlwaysStoppedAnimation(
-                                    _playerBlitzEnergy >= 1.0 ? AppTheme.opticYellow : state.selectedCharacter.accentColor,
+                            BouncyButton(
+                              onTap: _togglePause,
+                              child: Container(
+                                width: 36,
+                                height: 36,
+                                alignment: Alignment.center,
+                                decoration: BoxDecoration(
+                                  color: AppTheme.glassFill,
+                                  borderRadius: BorderRadius.circular(10),
+                                  border: Border.all(color: AppTheme.glassBorder),
+                                ),
+                                child: Icon(
+                                  _isMultiplayer ? Icons.exit_to_app_rounded : Icons.pause_rounded,
+                                  size: 18,
+                                  color: Colors.white,
+                                ),
+                              ),
+                            ),
+
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF0D1B16),
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(color: Colors.white12),
+                              ),
+                              child: Row(
+                                children: [
+                                  Text('${state.selectedCharacter.name.split(" ")[0].toUpperCase()}: $_playerScore',
+                                      style: TextStyle(color: state.selectedCharacter.bodyColor, fontWeight: FontWeight.w900, fontSize: 13)),
+                                  const Padding(
+                                    padding: EdgeInsets.symmetric(horizontal: 12),
+                                    child: Text('•', style: TextStyle(color: Colors.white30)),
                                   ),
+                                  Text('${opponentChar.name.split(" ")[0].toUpperCase()}: $_aiScore',
+                                      style: TextStyle(color: opponentChar.bodyColor, fontWeight: FontWeight.w900, fontSize: 13)),
+                                ],
+                              ),
+                            ),
+
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                              decoration: BoxDecoration(
+                                color: _isMultiplayer ? const Color(0xFF00E5FF).withValues(alpha: 0.2) : AppTheme.glassFill,
+                                borderRadius: BorderRadius.circular(14),
+                                border: _isMultiplayer ? Border.all(color: const Color(0xFF00E5FF)) : null,
+                              ),
+                              child: Text(
+                                _isMultiplayer ? '1v1 LAN' : 'FIRST TO ${state.targetScore}',
+                                style: TextStyle(
+                                  color: _isMultiplayer ? const Color(0xFF00E5FF) : AppTheme.mintAccent,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
                                 ),
                               ),
                             ),
                           ],
                         ),
-                      ),
+
+                        // Phase 4.3: Animated Rally Flame Aura (5+ Hits!)
+                        if (_currentRally >= 5 && _phase == MatchPhase.activeRally) ...[
+                          const SizedBox(height: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                            decoration: BoxDecoration(
+                              gradient: const LinearGradient(colors: [Color(0xFFFF9100), Color(0xFFFF3D00)]),
+                              borderRadius: BorderRadius.circular(10),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: const Color(0xFFFF3D00).withValues(alpha: 0.5),
+                                  blurRadius: 10,
+                                ),
+                              ],
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(Icons.whatshot_rounded, color: Colors.white, size: 14),
+                                const SizedBox(width: 4),
+                                Text(
+                                  '$_currentRally RALLY STREAK!',
+                                  style: const TextStyle(fontSize: 9.5, fontWeight: FontWeight.w900, color: Colors.white, letterSpacing: 0.8),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
                   ),
+
+                  // 3. AI Takeover Alert Banner
+                  if (_aiTakeoverBanner.isNotEmpty)
+                    Positioned(
+                      top: 68,
+                      left: 0,
+                      right: 0,
+                      child: Center(
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFF9100),
+                            borderRadius: BorderRadius.circular(12),
+                            boxShadow: const [BoxShadow(color: Colors.black45, blurRadius: 8)],
+                          ),
+                          child: Text(
+                            _aiTakeoverBanner,
+                            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w900, color: Colors.black, letterSpacing: 1.0),
+                          ),
+                        ),
+                      ),
+                    ),
 
                   // 4. Timing Feedback
                   if (_timingFeedback.isNotEmpty)
@@ -689,49 +1042,62 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
                       left: 0,
                       right: 0,
                       child: Center(
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                          decoration: BoxDecoration(
-                            color: Colors.black.withValues(alpha: 0.80),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: _timingFeedbackColor.withValues(alpha: 0.6)),
-                          ),
-                          child: Text(
-                            _timingFeedback,
-                            style: TextStyle(
-                              color: _timingFeedbackColor,
-                              fontWeight: FontWeight.w900,
-                              fontSize: 13,
-                              letterSpacing: 1.2,
-                            ),
+                        child: Text(
+                          _timingFeedback,
+                          style: TextStyle(
+                            color: _timingFeedbackColor,
+                            fontWeight: FontWeight.w900,
+                            fontSize: 14,
+                            letterSpacing: 1.5,
+                            shadows: [
+                              Shadow(color: _timingFeedbackColor.withValues(alpha: 0.8), blurRadius: 16),
+                              const Shadow(color: Colors.black, blurRadius: 8, offset: Offset(0, 2)),
+                            ],
                           ),
                         ),
                       ),
                     ),
 
-                  // 5. Toast Banner
-                  if (_phase == MatchPhase.intro ||
-                      _phase == MatchPhase.serveReady ||
-                      _phase == MatchPhase.pointScored)
+                  // 5. Borderless Esports Typography
+                  if ((_phase == MatchPhase.intro ||
+                          _phase == MatchPhase.serveReady ||
+                          _phase == MatchPhase.pointScored) &&
+                      _bannerTitle.isNotEmpty)
                     Center(
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 16),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF0F1B16).withValues(alpha: 0.94),
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(color: AppTheme.opticYellow.withValues(alpha: 0.4)),
-                          boxShadow: const [BoxShadow(color: Colors.black54, blurRadius: 24)],
-                        ),
-                        child: Text(
-                          _toastMessage,
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 16,
-                            fontWeight: FontWeight.w900,
-                            letterSpacing: 1.5,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            _bannerTitle,
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontSize: 32,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: 3.5,
+                              color: _bannerColor,
+                              shadows: [
+                                Shadow(color: _bannerColor.withValues(alpha: 0.7), blurRadius: 24),
+                                const Shadow(color: Colors.black, blurRadius: 14, offset: Offset(0, 4)),
+                              ],
+                            ),
                           ),
-                        ),
+                          if (_bannerSubtitle.isNotEmpty) ...[
+                            const SizedBox(height: 4),
+                            Text(
+                              _bannerSubtitle,
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: 2.5,
+                                color: Colors.white.withValues(alpha: 0.90),
+                                shadows: const [
+                                  Shadow(color: Colors.black, blurRadius: 8, offset: Offset(0, 2)),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ],
                       ),
                     ),
 
@@ -741,27 +1107,31 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
                       child: Text(
                         '$_countdownNumber',
                         style: const TextStyle(
-                          fontSize: 72,
+                          fontSize: 84,
                           fontWeight: FontWeight.w900,
                           color: AppTheme.opticYellow,
-                          shadows: [Shadow(color: Colors.black, blurRadius: 20)],
+                          shadows: [
+                            Shadow(color: AppTheme.opticYellow, blurRadius: 24),
+                            Shadow(color: Colors.black, blurRadius: 16),
+                          ],
                         ),
                       ),
                     ),
 
-                  // 7. VIRTUAL CONTROLS
-                  // A. LEFT THUMB: 360 DEGREE VIRTUAL JOYSTICK
+                  // 7. Phase 4.4: Adaptive Virtual Joystick
                   Positioned(
                     bottom: 24,
                     left: 20,
                     child: GestureDetector(
                       onPanStart: (_) {
+                        if (_isPaused) return;
                         setState(() {
                           _isJoystickActive = true;
                           _joystickKnobOffset = Offset.zero;
                         });
                       },
                       onPanUpdate: (details) {
+                        if (_isPaused) return;
                         final localOffset = _joystickKnobOffset + details.delta;
                         final distance = localOffset.distance;
                         final clampedOffset = distance > _joystickRadius
@@ -783,11 +1153,11 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
                         });
                       },
                       child: Container(
-                        width: 100,
-                        height: 100,
+                        width: 104,
+                        height: 104,
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
-                          color: Colors.black.withValues(alpha: 0.35),
+                          color: Colors.black.withValues(alpha: 0.40),
                           border: Border.all(color: Colors.white24, width: 2),
                         ),
                         child: Center(
@@ -814,7 +1184,6 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
                     ),
                   ),
 
-                  // B. RIGHT THUMB: ACTION BUTTON CLUSTER
                   Positioned(
                     bottom: 20,
                     right: 18,
@@ -857,7 +1226,10 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
                     ),
                   ),
 
-                  // 8. Game Over Modal
+                  // 8. PAUSE MENU OVERLAY
+                  if (_isPaused) _buildPauseOverlay(state),
+
+                  // 9. GAME OVER MODAL
                   if (_phase == MatchPhase.gameOver)
                     _buildGameOverStatsModal(
                       playerWon: _playerScore > _aiScore,
@@ -867,6 +1239,159 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
               ),
             );
           },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPauseOverlay(GameState state) {
+    return Container(
+      color: Colors.black.withValues(alpha: 0.85),
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 360),
+          child: GlassCard(
+            borderColor: AppTheme.opticYellow,
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.pause_circle_filled_rounded, size: 48, color: AppTheme.opticYellow),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'MATCH PAUSED',
+                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900, letterSpacing: 1.8, color: Colors.white),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    'Score: $_playerScore - $_aiScore • ${state.courtVenue}',
+                    style: const TextStyle(fontSize: 11, color: AppTheme.textMuted, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 18),
+
+                  if (_showInGameSettings) ...[
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(color: Colors.black45, borderRadius: BorderRadius.circular(14)),
+                      child: Column(
+                        children: [
+                          SwitchListTile(
+                            contentPadding: EdgeInsets.zero,
+                            activeColor: AppTheme.opticYellow,
+                            title: const Text('Sound Effects (SFX)', style: TextStyle(fontSize: 12)),
+                            value: state.soundEnabled,
+                            onChanged: (val) => setState(() => state.toggleSound(val)),
+                          ),
+                          SwitchListTile(
+                            contentPadding: EdgeInsets.zero,
+                            activeColor: AppTheme.opticYellow,
+                            title: const Text('Haptic Vibration', style: TextStyle(fontSize: 12)),
+                            value: state.hapticsEnabled,
+                            onChanged: (val) => setState(() => state.toggleHaptics(val)),
+                          ),
+                          SwitchListTile(
+                            contentPadding: EdgeInsets.zero,
+                            activeColor: AppTheme.mintAccent,
+                            title: const Text('Screen Shake FX', style: TextStyle(fontSize: 12)),
+                            value: state.screenShakeEnabled,
+                            onChanged: (val) => setState(() => state.toggleScreenShake(val)),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+
+                  BouncyButton(
+                    onTap: _togglePause,
+                    child: Container(
+                      width: double.infinity,
+                      height: 48,
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(colors: [Color(0xFF00E676), Color(0xFF00C853)]),
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: const Center(
+                        child: Text(
+                          'RESUME MATCH',
+                          style: TextStyle(fontSize: 13, fontWeight: FontWeight.w900, color: Colors.black, letterSpacing: 1.0),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+
+                  BouncyButton(
+                    onTap: () => setState(() => _showInGameSettings = !_showInGameSettings),
+                    child: Container(
+                      width: double.infinity,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: AppTheme.glassFill,
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: AppTheme.glassBorder),
+                      ),
+                      child: Center(
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            const Icon(Icons.tune_rounded, size: 16, color: Colors.white70),
+                            const SizedBox(width: 8),
+                            Text(
+                              _showInGameSettings ? 'HIDE SETTINGS' : 'QUICK SETTINGS',
+                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.white70),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+
+                  if (!_isMultiplayer)
+                    BouncyButton(
+                      onTap: _resetFullMatch,
+                      child: Container(
+                        width: double.infinity,
+                        height: 44,
+                        decoration: BoxDecoration(
+                          color: AppTheme.glassFill,
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: AppTheme.glassBorder),
+                        ),
+                        child: const Center(
+                          child: Text('RESTART MATCH', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.white70)),
+                        ),
+                      ),
+                    ),
+                  const SizedBox(height: 10),
+
+                  BouncyButton(
+                    onTap: () {
+                      if (_isMultiplayer) _lan.disconnect();
+                      Navigator.pop(context);
+                    },
+                    child: Container(
+                      width: double.infinity,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: Colors.red.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: Colors.redAccent.withValues(alpha: 0.6)),
+                      ),
+                      child: const Center(
+                        child: Text(
+                          'FORFEIT TO LOBBY',
+                          style: TextStyle(fontWeight: FontWeight.w900, fontSize: 12, color: Colors.redAccent),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
         ),
       ),
     );
@@ -950,10 +1475,7 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
               const SizedBox(height: 20),
               Container(
                 padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: Colors.black38,
-                  borderRadius: BorderRadius.circular(14),
-                ),
+                decoration: BoxDecoration(color: Colors.black38, borderRadius: BorderRadius.circular(14)),
                 child: Column(
                   children: [
                     _modalStatRow('Longest Rally Streak', '$_longestRally hits'),
@@ -970,10 +1492,7 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
                 child: Container(
                   width: double.infinity,
                   height: 48,
-                  decoration: BoxDecoration(
-                    color: AppTheme.opticYellow,
-                    borderRadius: BorderRadius.circular(14),
-                  ),
+                  decoration: BoxDecoration(color: AppTheme.opticYellow, borderRadius: BorderRadius.circular(14)),
                   child: const Center(
                     child: Text('PLAY REMATCH', style: TextStyle(color: Colors.black, fontWeight: FontWeight.w900, letterSpacing: 1.0)),
                   ),
@@ -981,7 +1500,10 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
               ),
               const SizedBox(height: 10),
               BouncyButton(
-                onTap: () => Navigator.pop(context),
+                onTap: () {
+                  if (_isMultiplayer) _lan.disconnect();
+                  Navigator.pop(context);
+                },
                 child: Container(
                   width: double.infinity,
                   height: 46,
@@ -1014,7 +1536,7 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
 }
 
 // ============================================================================
-// ELEVATED 3D COURT PAINTER WITH NON-LINEAR PERSPECTIVE DEPTH
+// 3D COURT PAINTER
 // ============================================================================
 
 class PerspectiveCourtPainter extends CustomPainter {
@@ -1072,8 +1594,6 @@ class PerspectiveCourtPainter extends CustomPainter {
     required this.courtVenue,
   });
 
-  // NON-LINEAR PINHOLE PERSPECTIVE CURVE
-  // Pushes the net to ~62% of vertical court pixels to match human visual perception!
   double _perspectiveDepth(double y) {
     final clampedY = y.clamp(-0.25, 1.05);
     if (clampedY >= 0) {
@@ -1109,57 +1629,75 @@ class PerspectiveCourtPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     Color apronColor;
-    Color courtColor;
+    Color nearCourtColor;
+    Color farCourtColor;
     Color kitchenColor;
     Color lineCol;
     bool hasNeonGlow = false;
 
-    if (courtVenue == 'Midnight Stadium') {
+    if (courtVenue == 'Rivalry Clash') {
+      apronColor = const Color(0xFF0A0F16);
+      nearCourtColor = const Color(0xFF0D47A1);
+      farCourtColor = const Color(0xFFB71C1C);
+      kitchenColor = const Color(0xFF182230);
+      lineCol = const Color(0xFF00E5FF);
+      hasNeonGlow = true;
+    } else if (courtVenue == 'Monochrome Street') {
+      apronColor = const Color(0xFF101010);
+      nearCourtColor = const Color(0xFF1C1C1C);
+      farCourtColor = const Color(0xFF1C1C1C);
+      kitchenColor = const Color(0xFF141414);
+      lineCol = Colors.white;
+    } else if (courtVenue == 'Midnight Stadium') {
       apronColor = const Color(0xFF070B10);
-      courtColor = const Color(0xFF0D1826);
+      nearCourtColor = const Color(0xFF0D1826);
+      farCourtColor = const Color(0xFF0D1826);
       kitchenColor = const Color(0xFF142438);
       lineCol = const Color(0xFF00E5FF);
       hasNeonGlow = true;
     } else if (courtVenue == 'Sunlit Beach') {
       apronColor = const Color(0xFFD4A373);
-      courtColor = const Color(0xFF2A9D8F);
+      nearCourtColor = const Color(0xFF2A9D8F);
+      farCourtColor = const Color(0xFF2A9D8F);
       kitchenColor = const Color(0xFF264653);
       lineCol = const Color(0xFFFFF7E6);
     } else {
       apronColor = const Color(0xFF102840);
-      courtColor = const Color(0xFF1C5382);
+      nearCourtColor = const Color(0xFF1C5382);
+      farCourtColor = const Color(0xFF1C5382);
       kitchenColor = const Color(0xFF163E63);
       lineCol = Colors.white;
     }
 
-    // 0. STADIUM SURROUNDING & LED HOARDING BACKDROP
     _drawStadiumAtmosphere(canvas, size, lineCol);
-
-    // 1. 3D SLAB DROP SHADOW & ELEVATION BEVEL
     _draw3DCourtSlab(canvas, size, apronColor);
 
-    // 2. PLAYABLE COURT
-    final courtPath = Path()
-      ..moveTo(project3D(-1.0, 0.0, 0, size).dx, project3D(-1.0, 0.0, 0, size).dy)
-      ..lineTo(project3D(1.0, 0.0, 0, size).dx, project3D(1.0, 0.0, 0, size).dy)
-      ..lineTo(project3D(1.0, 1.0, 0, size).dx, project3D(1.0, 1.0, 0, size).dy)
-      ..lineTo(project3D(-1.0, 1.0, 0, size).dx, project3D(-1.0, 1.0, 0, size).dy)
-      ..close();
+    if (nearCourtColor != farCourtColor) {
+      final nearPath = Path()
+        ..moveTo(project3D(-1.0, 0.0, 0, size).dx, project3D(-1.0, 0.0, 0, size).dy)
+        ..lineTo(project3D(1.0, 0.0, 0, size).dx, project3D(1.0, 0.0, 0, size).dy)
+        ..lineTo(project3D(1.0, 0.5, 0, size).dx, project3D(1.0, 0.5, 0, size).dy)
+        ..lineTo(project3D(-1.0, 0.5, 0, size).dx, project3D(-1.0, 0.5, 0, size).dy)
+        ..close();
+      canvas.drawPath(nearPath, Paint()..color = nearCourtColor);
 
-    final courtBounds = courtPath.getBounds();
-    final courtPaint = Paint()
-      ..shader = LinearGradient(
-        colors: [
-          courtColor.withValues(alpha: 0.90),
-          courtColor,
-          courtColor.withValues(alpha: 0.85),
-        ],
-        begin: Alignment.bottomCenter,
-        end: Alignment.topCenter,
-      ).createShader(courtBounds);
-    canvas.drawPath(courtPath, courtPaint);
+      final farPath = Path()
+        ..moveTo(project3D(-1.0, 0.5, 0, size).dx, project3D(-1.0, 0.5, 0, size).dy)
+        ..lineTo(project3D(1.0, 0.5, 0, size).dx, project3D(1.0, 0.5, 0, size).dy)
+        ..lineTo(project3D(1.0, 1.0, 0, size).dx, project3D(1.0, 1.0, 0, size).dy)
+        ..lineTo(project3D(-1.0, 1.0, 0, size).dx, project3D(-1.0, 1.0, 0, size).dy)
+        ..close();
+      canvas.drawPath(farPath, Paint()..color = farCourtColor);
+    } else {
+      final courtPath = Path()
+        ..moveTo(project3D(-1.0, 0.0, 0, size).dx, project3D(-1.0, 0.0, 0, size).dy)
+        ..lineTo(project3D(1.0, 0.0, 0, size).dx, project3D(1.0, 0.0, 0, size).dy)
+        ..lineTo(project3D(1.0, 1.0, 0, size).dx, project3D(1.0, 1.0, 0, size).dy)
+        ..lineTo(project3D(-1.0, 1.0, 0, size).dx, project3D(-1.0, 1.0, 0, size).dy)
+        ..close();
+      canvas.drawPath(courtPath, Paint()..color = nearCourtColor);
+    }
 
-    // 3. KITCHEN (NON-VOLLEY ZONE)
     final kitchenPath = Path()
       ..moveTo(project3D(-1.0, 0.34, 0, size).dx, project3D(-1.0, 0.34, 0, size).dy)
       ..lineTo(project3D(1.0, 0.34, 0, size).dx, project3D(1.0, 0.34, 0, size).dy)
@@ -1168,7 +1706,6 @@ class PerspectiveCourtPainter extends CustomPainter {
       ..close();
     canvas.drawPath(kitchenPath, Paint()..color = kitchenColor);
 
-    // 4. CRISP REGULATION COURT LINES
     final linePaint = Paint()
       ..color = lineCol.withValues(alpha: 0.95)
       ..style = PaintingStyle.stroke
@@ -1180,25 +1717,28 @@ class PerspectiveCourtPainter extends CustomPainter {
         ..style = PaintingStyle.stroke
         ..strokeWidth = 6.5
         ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8);
-      canvas.drawPath(courtPath, glowPaint);
+      canvas.drawPath(kitchenPath, glowPaint);
     }
 
-    canvas.drawPath(courtPath, linePaint);
+    final perimeterPath = Path()
+      ..moveTo(project3D(-1.0, 0.0, 0, size).dx, project3D(-1.0, 0.0, 0, size).dy)
+      ..lineTo(project3D(1.0, 0.0, 0, size).dx, project3D(1.0, 0.0, 0, size).dy)
+      ..lineTo(project3D(1.0, 1.0, 0, size).dx, project3D(1.0, 1.0, 0, size).dy)
+      ..lineTo(project3D(-1.0, 1.0, 0, size).dx, project3D(-1.0, 1.0, 0, size).dy)
+      ..close();
+    canvas.drawPath(perimeterPath, linePaint);
 
-    // Buffer Baseline behind player
     final bufferLinePaint = Paint()
       ..color = lineCol.withValues(alpha: 0.35)
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1.6;
     canvas.drawLine(project3D(-1.0, -0.18, 0, size), project3D(1.0, -0.18, 0, size), bufferLinePaint);
 
-    // Kitchen & Center Service Lines
     canvas.drawLine(project3D(-1.0, 0.34, 0, size), project3D(1.0, 0.34, 0, size), linePaint);
     canvas.drawLine(project3D(-1.0, 0.66, 0, size), project3D(1.0, 0.66, 0, size), linePaint);
     canvas.drawLine(project3D(0.0, 0.0, 0, size), project3D(0.0, 0.34, 0, size), linePaint);
     canvas.drawLine(project3D(0.0, 0.66, 0, size), project3D(0.0, 1.0, 0, size), linePaint);
 
-    // 5. OPPONENT RIG
     _drawAnimatedCharacter(
       canvas: canvas,
       size: size,
@@ -1213,16 +1753,10 @@ class PerspectiveCourtPainter extends CustomPainter {
       isOpponent: true,
     );
 
-    // 6. 3D NET WITH CENTER SAG & FLOOR SHADOW
     _draw3DPickleballNet(canvas, size, lineCol);
-
-    // 7. BALL LANDING RETICLE
     _drawLandingReticle(canvas, size);
-
-    // 8. BALL & 3D GROUND SHADOW
     _drawBallAndShadow(canvas, size);
 
-    // 9. PLAYER RIG
     _drawAnimatedCharacter(
       canvas: canvas,
       size: size,
@@ -1239,7 +1773,6 @@ class PerspectiveCourtPainter extends CustomPainter {
   }
 
   void _drawStadiumAtmosphere(Canvas canvas, Size size, Color accentColor) {
-    // Top stadium LED ribbon hoarding behind far baseline
     final pLeft = project3D(-1.40, 1.06, 0, size);
     final pRight = project3D(1.40, 1.06, 0, size);
 
@@ -1251,12 +1784,7 @@ class PerspectiveCourtPainter extends CustomPainter {
       ..lineTo(pLeft.dx, pLeft.dy - hoardingHeight)
       ..close();
 
-    canvas.drawPath(
-      hoardingPath,
-      Paint()..color = const Color(0xFF05080C),
-    );
-
-    // Neon trim along ribbon top
+    canvas.drawPath(hoardingPath, Paint()..color = const Color(0xFF05080C));
     canvas.drawLine(
       Offset(pLeft.dx, pLeft.dy - hoardingHeight),
       Offset(pRight.dx, pRight.dy - hoardingHeight),
@@ -1274,7 +1802,6 @@ class PerspectiveCourtPainter extends CustomPainter {
     final pBottomRight = project3D(1.35, -0.22, 0, size);
     final pBottomLeft = project3D(-1.35, -0.22, 0, size);
 
-    // Ambient drop shadow beneath the slab
     final shadowPath = Path()
       ..moveTo(pBottomLeft.dx, pBottomLeft.dy + bevelDrop + 6)
       ..lineTo(pBottomRight.dx, pBottomRight.dy + bevelDrop + 6)
@@ -1288,31 +1815,22 @@ class PerspectiveCourtPainter extends CustomPainter {
         ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 12),
     );
 
-    // Front Thickness Bevel
     final frontBevelPath = Path()
       ..moveTo(pBottomLeft.dx, pBottomLeft.dy)
       ..lineTo(pBottomRight.dx, pBottomRight.dy)
       ..lineTo(pBottomRight.dx, pBottomRight.dy + bevelDrop)
       ..lineTo(pBottomLeft.dx, pBottomLeft.dy + bevelDrop)
       ..close();
-    canvas.drawPath(
-      frontBevelPath,
-      Paint()..color = apronColor.withValues(alpha: 0.65),
-    );
+    canvas.drawPath(frontBevelPath, Paint()..color = apronColor.withValues(alpha: 0.65));
 
-    // Right Side Thickness Bevel
     final sideBevelPath = Path()
       ..moveTo(pBottomRight.dx, pBottomRight.dy)
       ..lineTo(pTopRight.dx, pTopRight.dy)
       ..lineTo(pTopRight.dx, pTopRight.dy + bevelDrop * 0.4)
       ..lineTo(pBottomRight.dx, pBottomRight.dy + bevelDrop)
       ..close();
-    canvas.drawPath(
-      sideBevelPath,
-      Paint()..color = apronColor.withValues(alpha: 0.45),
-    );
+    canvas.drawPath(sideBevelPath, Paint()..color = apronColor.withValues(alpha: 0.45));
 
-    // Main Apron Floor Surface
     final apronPath = Path()
       ..moveTo(pBottomLeft.dx, pBottomLeft.dy)
       ..lineTo(pBottomRight.dx, pBottomRight.dy)
@@ -1323,8 +1841,8 @@ class PerspectiveCourtPainter extends CustomPainter {
   }
 
   void _draw3DPickleballNet(Canvas canvas, Size size, Color cordColor) {
-    const postHeightZ = 0.44; // 36 inches at posts
-    const centerDipZ = 0.40;  // 34 inches at center strap
+    const postHeightZ = 0.44;
+    const centerDipZ = 0.40;
 
     final leftBase = project3D(-1.08, 0.5, 0.0, size);
     final leftTop = project3D(-1.08, 0.5, postHeightZ, size);
@@ -1335,7 +1853,6 @@ class PerspectiveCourtPainter extends CustomPainter {
     final centerTop = project3D(0.0, 0.5, centerDipZ, size);
     final centerBase = project3D(0.0, 0.5, 0.0, size);
 
-    // 1. Net Translucent Floor Shadow on Kitchen
     final shadowFloorPath = Path()
       ..moveTo(leftBase.dx, leftBase.dy - 3)
       ..lineTo(rightBase.dx, rightBase.dy - 3)
@@ -1349,24 +1866,17 @@ class PerspectiveCourtPainter extends CustomPainter {
         ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4),
     );
 
-    // 2. Net Mesh Surface (With subtle Sag Bézier Curve)
     final meshPath = Path()
       ..moveTo(leftBase.dx, leftBase.dy)
       ..lineTo(rightBase.dx, rightBase.dy)
       ..lineTo(rightTop.dx, rightTop.dy)
       ..quadraticBezierTo(centerTop.dx, centerTop.dy, leftTop.dx, leftTop.dy)
       ..close();
+    canvas.drawPath(meshPath, Paint()..color = cordColor.withValues(alpha: 0.30));
 
-    canvas.drawPath(
-      meshPath,
-      Paint()..color = cordColor.withValues(alpha: 0.30),
-    );
-
-    // 3. Top White Vinyl Net Tape (Bézier Sag)
     final tapePath = Path()
       ..moveTo(leftTop.dx, leftTop.dy)
       ..quadraticBezierTo(centerTop.dx, centerTop.dy, rightTop.dx, rightTop.dy);
-
     canvas.drawPath(
       tapePath,
       Paint()
@@ -1375,7 +1885,6 @@ class PerspectiveCourtPainter extends CustomPainter {
         ..strokeWidth = 3.6,
     );
 
-    // 4. Center Strap (Regulation 2-inch vertical white band)
     canvas.drawLine(
       centerTop,
       centerBase,
@@ -1384,7 +1893,6 @@ class PerspectiveCourtPainter extends CustomPainter {
         ..strokeWidth = 2.4,
     );
 
-    // 5. 3D Metal Net Posts with Top Caps
     final postPaint = Paint()
       ..color = const Color(0xFF2C3E50)
       ..strokeWidth = 5.0

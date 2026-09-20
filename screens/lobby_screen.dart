@@ -6,6 +6,7 @@ import '../widgets/asset_helpers.dart';
 import '../widgets/game_components.dart';
 import 'gameplay_screen.dart';
 import 'vs_ai_setup_screen.dart';
+import 'vs_player_lobby_screen.dart';
 
 // ============================================================================
 // CLASH ROYALE STYLE LOBBY SCREEN (5 TABS)
@@ -96,7 +97,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
                     children: [
                       _buildShopTab(),
                       _buildSplitPaddlesTab(state),  // Tab 1: Paddles
-                      _buildBattleHomeTab(state),    // Tab 2: Battle Home (Overhauled)
+                      _buildBattleHomeTab(state),    // Tab 2: Battle Home
                       _buildAthleteCarouselTab(state), // Tab 3: Roster
                       _buildSettingsTab(state),      // Tab 4: Settings
                     ],
@@ -183,7 +184,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
   }
 
   // ==========================================================================
-  // TAB 2: OVERHAULED BATTLE HOME TAB (CLASH ROYALE DUO & PROGRESSION)
+  // TAB 2: OVERHAULED BATTLE HOME TAB
   // ==========================================================================
   Widget _buildBattleHomeTab(GameState state) {
     final stageIndex = state.completedStages.clamp(0, kCampaignStages.length - 1);
@@ -191,7 +192,6 @@ class _LobbyScreenState extends State<LobbyScreen> {
     final athlete = state.selectedCharacter;
     final paddle = state.selectedPaddle;
 
-    // Computed OVR team score based on athlete & paddle stats
     final teamOvr = (72 + (athlete.swingPower * 8) + (paddle.power * 10)).round().clamp(60, 99);
 
     return SingleChildScrollView(
@@ -274,7 +274,6 @@ class _LobbyScreenState extends State<LobbyScreen> {
                       ],
                     ),
                     const SizedBox(height: 10),
-                    // Road Progress Bar
                     ClipRRect(
                       borderRadius: BorderRadius.circular(4),
                       child: LinearProgressIndicator(
@@ -584,7 +583,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
               // 5. SIDE-BY-SIDE LAUNCHERS: VS. AI & VS. PLAYER
               Row(
                 children: [
-                  // 1. VS. AI BUTTON (Navigates to VsAiSetupScreen!)
+                  // 1. VS. AI BUTTON (Navigates to VsAiSetupScreen)
                   Expanded(
                     child: BouncyButton(
                       onTap: () {
@@ -663,34 +662,14 @@ class _LobbyScreenState extends State<LobbyScreen> {
 
                   const SizedBox(width: 10),
 
-                  // 2. VS. PLAYER BUTTON (Placeholder with Coming Soon Toast)
+                  // 2. VS. PLAYER BUTTON (Navigates to VsPlayerLobbyScreen!)
                   Expanded(
                     child: BouncyButton(
                       onTap: () {
-                        AppAudio.play(context, 'click.mp3', 'VS Player 1v1 coming in v2.1!');
-                        ScaffoldMessenger.of(context).clearSnackBars();
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: const Row(
-                              children: [
-                                Icon(Icons.sports_esports_rounded, color: Color(0xFF00E5FF), size: 20),
-                                SizedBox(width: 10),
-                                Expanded(
-                                  child: Text(
-                                    '👥 VS. Player (Local & Online 1v1) is under construction for v2.1!',
-                                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            backgroundColor: const Color(0xFF0F1B26),
-                            duration: const Duration(seconds: 2),
-                            behavior: SnackBarBehavior.floating,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              side: const BorderSide(color: Color(0xFF00E5FF), width: 1.2),
-                            ),
-                          ),
+                        AppAudio.play(context, 'click.mp3', 'Opening 1v1 Local Duel Lobby');
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (_) => const VsPlayerLobbyScreen()),
                         );
                       },
                       child: Stack(
@@ -747,7 +726,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
                                       ),
                                     ),
                                     Text(
-                                      'ONLINE & 1v1',
+                                      'LOCAL 1v1',
                                       style: TextStyle(
                                         fontSize: 8.5,
                                         fontWeight: FontWeight.bold,
@@ -761,7 +740,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
                             ),
                           ),
 
-                          // ARCADE "COMING SOON" CHIP BADGE
+                          // ARCADE "1v1 LAN" ACTIVE CHIP BADGE
                           Positioned(
                             top: -6,
                             right: 8,
@@ -769,7 +748,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
                               padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
                               decoration: BoxDecoration(
                                 gradient: const LinearGradient(
-                                  colors: [Color(0xFFFF9100), Color(0xFFFF3D00)],
+                                  colors: [Color(0xFF00E5FF), Color(0xFF0288D1)],
                                 ),
                                 borderRadius: BorderRadius.circular(6),
                                 boxShadow: const [
@@ -781,11 +760,11 @@ class _LobbyScreenState extends State<LobbyScreen> {
                                 ],
                               ),
                               child: const Text(
-                                'SOON',
+                                '1v1 LAN',
                                 style: TextStyle(
                                   fontSize: 8,
                                   fontWeight: FontWeight.w900,
-                                  color: Colors.white,
+                                  color: Colors.black,
                                   letterSpacing: 0.8,
                                 ),
                               ),
