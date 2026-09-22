@@ -1278,21 +1278,21 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
                         children: [
                           SwitchListTile(
                             contentPadding: EdgeInsets.zero,
-                            activeColor: AppTheme.opticYellow,
+                            activeThumbColor: AppTheme.opticYellow,
                             title: const Text('Sound Effects (SFX)', style: TextStyle(fontSize: 12)),
                             value: state.soundEnabled,
                             onChanged: (val) => setState(() => state.toggleSound(val)),
                           ),
                           SwitchListTile(
                             contentPadding: EdgeInsets.zero,
-                            activeColor: AppTheme.opticYellow,
+                            activeThumbColor: AppTheme.opticYellow,
                             title: const Text('Haptic Vibration', style: TextStyle(fontSize: 12)),
                             value: state.hapticsEnabled,
                             onChanged: (val) => setState(() => state.toggleHaptics(val)),
                           ),
                           SwitchListTile(
                             contentPadding: EdgeInsets.zero,
-                            activeColor: AppTheme.mintAccent,
+                            activeThumbColor: AppTheme.mintAccent,
                             title: const Text('Screen Shake FX', style: TextStyle(fontSize: 12)),
                             value: state.screenShakeEnabled,
                             onChanged: (val) => setState(() => state.toggleScreenShake(val)),
