@@ -1,6 +1,35 @@
+// lib/widgets/asset_helpers.dart
+
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../models/game_state.dart';
+
+// ============================================================================
+// ZERO-CRASH ASSET MANIFEST REGISTRY
+// ============================================================================
+class AppAssetRegistry {
+  static Set<String> _bundledAssets = {};
+  static bool _initialized = false;
+
+  /// Inspects the app's compiled asset bundle at runtime.
+  static Future<void> init() async {
+    if (_initialized) return;
+    try {
+      final manifest = await AssetManifest.loadFromAssetBundle(rootBundle);
+      _bundledAssets = manifest.listAssets().toSet();
+      _initialized = true;
+    } catch (e) {
+      debugPrint('AssetManifest index note: $e');
+    }
+  }
+
+  /// Verifies if an asset file actually exists inside the bundle.
+  static bool hasAsset(String path) {
+    if (!_initialized) return true; // If manifest not ready, allow safe attempt
+    return _bundledAssets.contains(path);
+  }
+}
 
 // ============================================================================
 // SAFE ASSET IMAGE LOADER
@@ -23,68 +52,106 @@ class AppAssetImage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // If asset is not in bundle, render the procedural fallback immediately (No 404!)
+    if (!AppAssetRegistry.hasAsset(assetPath)) {
+      return fallback;
+    }
+
     return Image.asset(
       assetPath,
       width: width,
       height: height,
       fit: fit,
-      errorBuilder: (context, error, stackTrace) {
-        return fallback;
-      },
+      errorBuilder: (context, error, stackTrace) => fallback,
     );
   }
 }
 
 // ============================================================================
-// MULTI-CHANNEL LOW-LATENCY AUDIO CONTROLLER
+// LOW-LATENCY ZERO-CRASH AUDIO CONTROLLER
 // ============================================================================
 class AppAudio {
   static final AudioPlayer _musicPlayer = AudioPlayer();
   static final AudioPlayer _sfxPlayer = AudioPlayer();
-  static bool _initialized = false;
+  static bool _audioConfigured = false;
 
-  static void _init() {
-    if (_initialized) return;
+  static void _ensureAudioConfigured() {
+    if (_audioConfigured) return;
     _musicPlayer.audioCache.prefix = '';
     _sfxPlayer.audioCache.prefix = '';
-    // Enable low-latency mode for rapid gameplay Foley
     _sfxPlayer.setPlayerMode(PlayerMode.lowLatency);
-    _initialized = true;
+    _audioConfigured = true;
   }
 
-  /// General audio playback (menus, intro, fanfare)
-  static Future<void> play(BuildContext? context, String soundFile, String placeholderText) async {
+  /// Plays dedicated in-game SFX with safe existence verification.
+  /// If the .mp3 file is missing from disk, it skips cleanly without crashing or logging 404s.
+  static Future<void> playFeatureSfx(String soundFileName) async {
     if (!GameState.instance.soundEnabled) return;
+    _ensureAudioConfigured();
 
-    _init();
+    final candidatePath = 'lib/assets/sounds/sfx/$soundFileName';
+    final fallbackDrive = 'lib/assets/sounds/sfx/paddle_drive.mp3';
 
-    try {
-      final isMusic = soundFile.contains('jingle') || soundFile.contains('intro') || soundFile.contains('battle_start');
-      final folder = isMusic ? 'music' : 'sfx';
+    String pathToPlay = candidatePath;
 
-      final path = soundFile == 'canzed_intro.mp3'
-          ? 'lib/assets/sounds/sfx/$soundFile'
-          : 'lib/assets/sounds/$folder/$soundFile';
-
-      await _musicPlayer.stop();
-      await _musicPlayer.play(AssetSource(path));
-    } catch (e) {
-      debugPrint('Audio playback note ($soundFile): $e');
+    // The IF Statement Check:
+    if (!AppAssetRegistry.hasAsset(candidatePath)) {
+      // If specific sound missing, try base paddle drive or return cleanly
+      if (soundFileName.contains('serve') || soundFileName.contains('dink')) {
+        if (AppAssetRegistry.hasAsset(fallbackDrive)) {
+          pathToPlay = fallbackDrive;
+        } else {
+          return;
+        }
+      } else {
+        return; // Silent fail without errors
+      }
     }
-  }
-
-  /// Dedicated high-speed in-game SFX (Paddle hit, ball bounce, buzzer)
-  /// Safe: Never throws or crashes if the .mp3 file is missing!
-  static Future<void> playSfx(String soundFile) async {
-    if (!GameState.instance.soundEnabled) return;
-
-    _init();
 
     try {
       await _sfxPlayer.stop();
-      await _sfxPlayer.play(AssetSource('lib/assets/sounds/sfx/$soundFile'));
-    } catch (e) {
-      debugPrint('SFX note ($soundFile): $e');
+      await _sfxPlayer.play(AssetSource(pathToPlay));
+    } catch (_) {}
+  }
+
+  /// Backward-compatible alias for existing code
+  static Future<void> playSfx(String soundFileName) async {
+    await playFeatureSfx(soundFileName);
+  }
+
+  /// Plays background music and intro sequences
+  static Future<void> playMusic(String soundFile) async {
+    if (!GameState.instance.soundEnabled) return;
+    _ensureAudioConfigured();
+
+    final isSfxFolder = soundFile.contains('intro') || soundFile.contains('fault') || soundFile.contains('bounce');
+    final folder = isSfxFolder ? 'sfx' : 'music';
+    final path = 'lib/assets/sounds/$folder/$soundFile';
+
+    if (!AppAssetRegistry.hasAsset(path)) {
+      // If xccr_intro is called but canzed_intro is on disk, bridge cleanly
+      if (soundFile == 'xccr_intro.mp3' && AppAssetRegistry.hasAsset('lib/assets/sounds/sfx/canzed_intro.mp3')) {
+        try {
+          await _musicPlayer.stop();
+          await _musicPlayer.play(AssetSource('lib/assets/sounds/sfx/canzed_intro.mp3'));
+        } catch (_) {}
+        return;
+      }
+      return;
+    }
+
+    try {
+      await _musicPlayer.stop();
+      await _musicPlayer.play(AssetSource(path));
+    } catch (_) {}
+  }
+
+  /// Legacy menu sound dispatcher
+  static Future<void> play(BuildContext? context, String soundFile, String placeholderText) async {
+    if (soundFile.contains('jingle') || soundFile.contains('intro') || soundFile.contains('battle_start')) {
+      await playMusic(soundFile);
+    } else {
+      await playFeatureSfx(soundFile);
     }
   }
 
