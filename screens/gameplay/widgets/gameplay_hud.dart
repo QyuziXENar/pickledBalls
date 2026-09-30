@@ -1,15 +1,19 @@
-// lib/screens/gameplay/physics/widgets/gameplay_hud.dart
+// lib/screens/gameplay/widgets/gameplay_hud.dart
 
 import 'package:flutter/material.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../models/game_state.dart';
 import '../../../../widgets/game_components.dart';
 
+// ============================================================================
+// TOP SCOREBOARD & 3:00 COUNTDOWN TIMER (PER IMAGE SKETCH)
+// ============================================================================
 class GameplayScoreboard extends StatelessWidget {
   final GameState state;
   final CharacterModel opponentChar;
   final int playerScore;
   final int aiScore;
+  final double matchTimeRemaining;
   final VoidCallback onPause;
 
   const GameplayScoreboard({
@@ -18,57 +22,125 @@ class GameplayScoreboard extends StatelessWidget {
     required this.opponentChar,
     required this.playerScore,
     required this.aiScore,
+    required this.matchTimeRemaining,
     required this.onPause,
   });
 
+  String _formatTime(double seconds) {
+    final clamped = seconds.clamp(0.0, 3600.0).toInt();
+    final mins = (clamped ~/ 60).toString().padLeft(2, '0');
+    final secs = (clamped % 60).toString().padLeft(2, '0');
+    return '$mins:$secs';
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    final isLowTime = matchTimeRemaining < 30.0;
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
       children: [
-        BouncyButton(
-          onTap: onPause,
-          child: Container(
-            width: 38,
-            height: 38,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: AppColors.glassFill,
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: AppColors.glassBorder),
-            ),
-            child: const Icon(Icons.pause_rounded, size: 20, color: Colors.white),
-          ),
-        ),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 6),
-          decoration: BoxDecoration(
-            color: AppColors.darkSurface,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: Colors.white12),
-          ),
-          child: Row(
-            children: [
-              Text('${state.selectedCharacter.name.split(" ")[0].toUpperCase()}: $playerScore',
-                  style: TextStyle(color: state.selectedCharacter.accentColor, fontWeight: FontWeight.w900, fontSize: 13)),
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 10),
-                child: Text('•', style: TextStyle(color: Colors.white30)),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            // Pause Button
+            BouncyButton(
+              onTap: onPause,
+              child: Container(
+                width: 38,
+                height: 38,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: AppColors.glassFill,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: AppColors.glassBorder),
+                ),
+                child: const Icon(Icons.pause_rounded, size: 20, color: Colors.white),
               ),
-              Text('${opponentChar.name.split(" ")[0].toUpperCase()}: $aiScore',
-                  style: TextStyle(color: opponentChar.accentColor, fontWeight: FontWeight.w900, fontSize: 13)),
-            ],
-          ),
+            ),
+
+            // Score Capsule [ 04 | 01 ]
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 6),
+              decoration: BoxDecoration(
+                color: const Color(0xFF0F1B26),
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(color: Colors.white24, width: 1.8),
+                boxShadow: const [
+                  BoxShadow(color: Colors.black54, blurRadius: 10, offset: Offset(0, 3)),
+                ],
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    playerScore.toString().padLeft(2, '0'),
+                    style: TextStyle(
+                      fontFamily: 'monospace',
+                      fontSize: 18,
+                      fontWeight: FontWeight.w900,
+                      color: state.selectedCharacter.accentColor,
+                    ),
+                  ),
+                  Container(
+                    height: 18,
+                    width: 2,
+                    margin: const EdgeInsets.symmetric(horizontal: 14),
+                    color: Colors.white24,
+                  ),
+                  Text(
+                    aiScore.toString().padLeft(2, '0'),
+                    style: TextStyle(
+                      fontFamily: 'monospace',
+                      fontSize: 18,
+                      fontWeight: FontWeight.w900,
+                      color: opponentChar.accentColor,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            // First to Target Points Badge
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: AppColors.glassFill,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Text(
+                'TO ${state.targetScore}',
+                style: const TextStyle(
+                  color: AppColors.mintAccent,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ),
+          ],
         ),
+
+        const SizedBox(height: 4),
+
+        // Round Timer: Exactly 3:00 underneath the capsule
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
           decoration: BoxDecoration(
-            color: AppColors.glassFill,
-            borderRadius: BorderRadius.circular(10),
+            color: Colors.black45,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: isLowTime ? AppColors.electricCoral : Colors.white10,
+            ),
           ),
           child: Text(
-            'FIRST TO ${state.targetScore}',
-            style: const TextStyle(color: AppColors.mintAccent, fontSize: 10, fontWeight: FontWeight.bold),
+            _formatTime(matchTimeRemaining),
+            style: TextStyle(
+              fontFamily: 'monospace',
+              fontSize: 12,
+              fontWeight: FontWeight.w900,
+              color: isLowTime ? AppColors.electricCoral : Colors.white70,
+              letterSpacing: 1.2,
+            ),
           ),
         ),
       ],
@@ -76,6 +148,38 @@ class GameplayScoreboard extends StatelessWidget {
   }
 }
 
+// ============================================================================
+// BETA v3.34 WATERMARK OVERLAY
+// ============================================================================
+class BetaWatermarkBadge extends StatelessWidget {
+  const BetaWatermarkBadge({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.35),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: Colors.white12),
+      ),
+      child: const Text(
+        'PADDLE BLITZ BETA v3.34',
+        style: TextStyle(
+          fontFamily: 'monospace',
+          fontSize: 8.5,
+          fontWeight: FontWeight.bold,
+          color: Colors.white38,
+          letterSpacing: 0.8,
+        ),
+      ),
+    );
+  }
+}
+
+// ============================================================================
+// PAUSE OVERLAY
+// ============================================================================
 class PauseMenuOverlay extends StatelessWidget {
   final VoidCallback onResume;
   final VoidCallback onForfeit;
@@ -139,6 +243,9 @@ class PauseMenuOverlay extends StatelessWidget {
   }
 }
 
+// ============================================================================
+// GAME OVER STATS MODAL
+// ============================================================================
 class GameOverModal extends StatelessWidget {
   final bool playerWon;
   final int playerScore;

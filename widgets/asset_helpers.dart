@@ -52,7 +52,6 @@ class AppAssetImage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // If asset is not in bundle, render the procedural fallback immediately (No 404!)
     if (!AppAssetRegistry.hasAsset(assetPath)) {
       return fallback;
     }
@@ -68,85 +67,107 @@ class AppAssetImage extends StatelessWidget {
 }
 
 // ============================================================================
-// LOW-LATENCY ZERO-CRASH AUDIO CONTROLLER
+// LOW-LATENCY ZERO-CRASH AUDIO CONTROLLER (iOS AMBIENT & MIX-WITH-OTHERS)
 // ============================================================================
 class AppAudio {
   static final AudioPlayer _musicPlayer = AudioPlayer();
   static final AudioPlayer _sfxPlayer = AudioPlayer();
-  static bool _audioConfigured = false;
+  static bool _initialized = false;
 
-  static void _ensureAudioConfigured() {
-    if (_audioConfigured) return;
-    _musicPlayer.audioCache.prefix = '';
-    _sfxPlayer.audioCache.prefix = '';
-    _sfxPlayer.setPlayerMode(PlayerMode.lowLatency);
-    _audioConfigured = true;
+  /// Configures iOS AVAudioSessionCategory.ambient and Android gainTransientMayDuck
+  static Future<void> init() async {
+    if (_initialized) return;
+
+    try {
+      await AudioPlayer.global.setAudioContext(
+        AudioContext(
+          iOS: AudioContextIOS(
+            category: AVAudioSessionCategory.ambient,
+            // Uses Set<AVAudioSessionOptions> with curly braces {} to satisfy audioplayers 6.x
+            options: const {
+              AVAudioSessionOptions.mixWithOthers,
+              AVAudioSessionOptions.duckOthers,
+            },
+          ),
+          android: const AudioContextAndroid(
+            isSpeakerphoneOn: true,
+            stayAwake: true,
+            contentType: AndroidContentType.sonification,
+            usageType: AndroidUsageType.game,
+            audioFocus: AndroidAudioFocus.gainTransientMayDuck,
+          ),
+        ),
+      );
+
+      _musicPlayer.audioCache.prefix = '';
+      _sfxPlayer.audioCache.prefix = '';
+      await _sfxPlayer.setPlayerMode(PlayerMode.lowLatency);
+
+      _initialized = true;
+    } catch (e) {
+      debugPrint('Audio initialization note: $e');
+    }
   }
 
-  /// Plays dedicated in-game SFX with safe existence verification.
-  /// If the .mp3 file is missing from disk, it skips cleanly without crashing or logging 404s.
-  static Future<void> playFeatureSfx(String soundFileName) async {
+  /// Plays dedicated in-game SFX with safe path and manifest checking
+  static Future<void> playFeatureSfx(String soundPath) async {
     if (!GameState.instance.soundEnabled) return;
-    _ensureAudioConfigured();
+    await init();
 
-    final candidatePath = 'lib/assets/sounds/sfx/$soundFileName';
-    final fallbackDrive = 'lib/assets/sounds/sfx/paddle_drive.mp3';
+    // Resolves both full paths ('lib/assets/sounds/sfx/...') and raw filenames ('click.mp3')
+    final cleanPath = soundPath.startsWith('lib/') || soundPath.startsWith('assets/')
+        ? soundPath
+        : 'lib/assets/sounds/sfx/$soundPath';
 
-    String pathToPlay = candidatePath;
-
-    // The IF Statement Check:
-    if (!AppAssetRegistry.hasAsset(candidatePath)) {
-      // If specific sound missing, try base paddle drive or return cleanly
-      if (soundFileName.contains('serve') || soundFileName.contains('dink')) {
-        if (AppAssetRegistry.hasAsset(fallbackDrive)) {
-          pathToPlay = fallbackDrive;
-        } else {
-          return;
-        }
-      } else {
-        return; // Silent fail without errors
-      }
+    if (!AppAssetRegistry.hasAsset(cleanPath)) {
+      return; // Safe silent bypass (Zero 404!)
     }
 
     try {
       await _sfxPlayer.stop();
-      await _sfxPlayer.play(AssetSource(pathToPlay));
-    } catch (_) {}
+      await _sfxPlayer.play(AssetSource(cleanPath));
+    } catch (e) {
+      debugPrint('SFX playback note ($cleanPath): $e');
+    }
   }
 
-  /// Backward-compatible alias for existing code
+  /// Backward-compatible alias for existing dialogs and widgets
   static Future<void> playSfx(String soundFileName) async {
     await playFeatureSfx(soundFileName);
   }
 
-  /// Plays background music and intro sequences
-  static Future<void> playMusic(String soundFile) async {
+  /// Plays background music and intro tracks
+  static Future<void> playMusic(String soundPath) async {
     if (!GameState.instance.soundEnabled) return;
-    _ensureAudioConfigured();
+    await init();
 
-    final isSfxFolder = soundFile.contains('intro') || soundFile.contains('fault') || soundFile.contains('bounce');
+    final isSfxFolder = soundPath.contains('intro') || soundPath.contains('fault') || soundPath.contains('bounce');
     final folder = isSfxFolder ? 'sfx' : 'music';
-    final path = 'lib/assets/sounds/$folder/$soundFile';
 
-    if (!AppAssetRegistry.hasAsset(path)) {
-      // If xccr_intro is called but canzed_intro is on disk, bridge cleanly
-      if (soundFile == 'xccr_intro.mp3' && AppAssetRegistry.hasAsset('lib/assets/sounds/sfx/canzed_intro.mp3')) {
+    final cleanPath = soundPath.startsWith('lib/') || soundPath.startsWith('assets/')
+        ? soundPath
+        : 'lib/assets/sounds/$folder/$soundPath';
+
+    if (!AppAssetRegistry.hasAsset(cleanPath)) {
+      // Automatic bridge: if xccr_intro is called but canzed_intro is on disk, fallback cleanly
+      if (soundPath.contains('intro') && AppAssetRegistry.hasAsset('lib/assets/sounds/sfx/canzed_intro.mp3')) {
         try {
           await _musicPlayer.stop();
           await _musicPlayer.play(AssetSource('lib/assets/sounds/sfx/canzed_intro.mp3'));
         } catch (_) {}
-        return;
       }
       return;
     }
 
     try {
       await _musicPlayer.stop();
-      await _musicPlayer.play(AssetSource(path));
-    } catch (_) {}
+      await _musicPlayer.play(AssetSource(cleanPath));
+    } catch (e) {
+      debugPrint('Music playback note ($cleanPath): $e');
+    }
   }
 
-  /// Legacy menu sound dispatcher
+  /// Legacy dispatcher for intro and UI taps
   static Future<void> play(BuildContext? context, String soundFile, String placeholderText) async {
     if (soundFile.contains('jingle') || soundFile.contains('intro') || soundFile.contains('battle_start')) {
       await playMusic(soundFile);
@@ -156,7 +177,9 @@ class AppAudio {
   }
 
   static Future<void> stop() async {
-    await _musicPlayer.stop();
-    await _sfxPlayer.stop();
+    try {
+      await _musicPlayer.stop();
+      await _sfxPlayer.stop();
+    } catch (_) {}
   }
 }

@@ -1,4 +1,4 @@
-// lib/screens/gameplay/physics/gameplay_controls.dart
+// lib/screens/gameplay/widgets/gameplay_controls.dart
 
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
@@ -7,6 +7,9 @@ import '../../../../core/constants/app_colors.dart';
 import '../../../../widgets/game_components.dart';
 import '../gameplay_screen.dart';
 
+// ============================================================================
+// JOYSTICK: OUTER CIRCLE WITH INSCRIBED DIAMOND (PER IMAGE SKETCH)
+// ============================================================================
 class VirtualJoystickWidget extends StatelessWidget {
   final Offset knobOffset;
   final double radius;
@@ -34,48 +37,83 @@ class VirtualJoystickWidget extends StatelessWidget {
         height: radius * 2 + 4,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
-          color: Colors.black.withValues(alpha: 0.40),
+          color: Colors.black.withValues(alpha: 0.45),
           border: Border.all(color: Colors.white24, width: 2),
         ),
-        child: Center(
-          child: Transform.translate(
-            offset: knobOffset,
-            child: Container(
-              width: 40,
-              height: 40,
-              decoration: const BoxDecoration(
-                shape: BoxShape.circle,
-                color: AppColors.opticYellow,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            // Inscribed Diamond
+            Transform.rotate(
+              angle: math.pi / 4,
+              child: Container(
+                width: radius * 1.35,
+                height: radius * 1.35,
+                decoration: BoxDecoration(
+                  border: Border.all(
+                    color: AppColors.opticYellow.withValues(alpha: 0.40),
+                    width: 1.5,
+                  ),
+                ),
               ),
-              child: const Icon(Icons.control_camera_rounded, size: 18, color: Colors.black),
             ),
-          ),
+            // Analog Knob
+            Transform.translate(
+              offset: knobOffset,
+              child: Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: AppColors.opticYellow,
+                  boxShadow: [
+                    BoxShadow(
+                      color: AppColors.opticYellow.withValues(alpha: 0.4),
+                      blurRadius: 10,
+                    ),
+                  ],
+                ),
+                child: const Icon(Icons.control_camera_rounded, size: 18, color: Colors.black),
+              ),
+            ),
+          ],
         ),
       ),
     );
   }
 }
 
+// ============================================================================
+// 4-BUTTON RADIAL CLUSTER WITH CHARGING FEEDBACK (PER IMAGE SKETCH)
+// ============================================================================
 class GameplayActionCluster extends StatelessWidget {
   final MatchPhase phase;
   final bool playerServing;
   final double blitzEnergy;
+  final double driveCooldown;
+  final double smashCooldown;
+  final double lobCooldown;
   final bool isLandscape;
   final VoidCallback onToss;
   final VoidCallback onDriveServe;
   final VoidCallback onLobServe;
   final Function(ShotType) onSwing;
+  final VoidCallback onBlitzNotReady;
 
   const GameplayActionCluster({
     super.key,
     required this.phase,
     required this.playerServing,
     required this.blitzEnergy,
+    required this.driveCooldown,
+    required this.smashCooldown,
+    required this.lobCooldown,
     required this.isLandscape,
     required this.onToss,
     required this.onDriveServe,
     required this.onLobServe,
     required this.onSwing,
+    required this.onBlitzNotReady,
   });
 
   @override
@@ -101,51 +139,96 @@ class GameplayActionCluster extends StatelessWidget {
           ),
         ),
       );
-    } else if (phase == MatchPhase.serveBallInAir && playerServing) {
+    }
+
+    if (phase == MatchPhase.serveBallInAir && playerServing) {
       return Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           _serveButton(label: 'LOB SERVE', color: AppColors.mintAccent, onTap: onLobServe),
-          const SizedBox(width: 10),
+          const SizedBox(width: 12),
           _serveButton(label: 'DRIVE SERVE', color: AppColors.opticYellow, onTap: onDriveServe),
         ],
       );
-    } else {
-      return Row(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.end,
+    }
+
+    final isBlitzReady = blitzEnergy >= 1.0;
+
+    return SizedBox(
+      width: 180,
+      height: 180,
+      child: Stack(
+        clipBehavior: Clip.none,
+        alignment: Alignment.center,
         children: [
-          _actionCircle(
-            label: 'BLITZ',
-            icon: Icons.bolt,
-            size: 50,
-            color: blitzEnergy >= 1.0 ? AppColors.opticYellow : Colors.white12,
-            textColor: blitzEnergy >= 1.0 ? Colors.black : Colors.white38,
-            onTap: () {
-              if (blitzEnergy >= 1.0) onSwing(ShotType.signatureBlitz);
-            },
+          // Button 1: Primary Drive (LARGE HERO - Bottom Right Center)
+          Positioned(
+            right: 4,
+            bottom: 4,
+            child: _cooldownActionButton(
+              label: 'DRIVE',
+              icon: Icons.sports_tennis,
+              size: 72,
+              color: AppColors.mintAccent,
+              textColor: Colors.black,
+              cooldownProgress: driveCooldown,
+              onTap: () => onSwing(ShotType.normal),
+            ),
           ),
-          const SizedBox(width: 10),
-          _actionCircle(
-            label: 'SMASH',
-            icon: Icons.flash_on_rounded,
-            size: 58,
-            color: AppColors.electricCoral,
-            textColor: Colors.white,
-            onTap: () => onSwing(ShotType.smash),
+
+          // Button 2: Smash / Overhead (MEDIUM - Top-Right of Button 1)
+          Positioned(
+            right: 18,
+            top: 14,
+            child: _cooldownActionButton(
+              label: 'SMASH',
+              icon: Icons.flash_on_rounded,
+              size: 56,
+              color: AppColors.electricCoral,
+              textColor: Colors.white,
+              cooldownProgress: smashCooldown,
+              onTap: () => onSwing(ShotType.smash),
+            ),
           ),
-          const SizedBox(width: 10),
-          _actionCircle(
-            label: 'DRIVE',
-            icon: Icons.sports_tennis,
-            size: 68,
-            color: AppColors.mintAccent,
-            textColor: Colors.black,
-            onTap: () => onSwing(ShotType.normal),
+
+          // Button 3: Lob / Drop / Dink (MEDIUM-SMALL - Top-Left of Button 1)
+          Positioned(
+            left: 28,
+            top: 28,
+            child: _cooldownActionButton(
+              label: 'LOB',
+              icon: Icons.expand_less_rounded,
+              size: 48,
+              color: const Color(0xFFFFA726),
+              textColor: Colors.black,
+              cooldownProgress: lobCooldown,
+              onTap: () => onSwing(ShotType.lob),
+            ),
+          ),
+
+          // Button 4: Blitz Super (SMALLEST - Bottom-Left of Button 1)
+          Positioned(
+            left: 10,
+            bottom: 12,
+            child: _cooldownActionButton(
+              label: 'BLITZ',
+              icon: Icons.bolt,
+              size: 42,
+              color: isBlitzReady ? AppColors.opticYellow : const Color(0xFF2C3E50),
+              textColor: isBlitzReady ? Colors.black : Colors.white38,
+              cooldownProgress: isBlitzReady ? 0.0 : (1.0 - blitzEnergy),
+              onTap: () {
+                if (isBlitzReady) {
+                  onSwing(ShotType.signatureBlitz);
+                } else {
+                  onBlitzNotReady();
+                }
+              },
+            ),
           ),
         ],
-      );
-    }
+      ),
+    );
   }
 
   Widget _serveButton({required String label, required Color color, required VoidCallback onTap}) {
@@ -166,35 +249,85 @@ class GameplayActionCluster extends StatelessWidget {
     );
   }
 
-  Widget _actionCircle({
+  Widget _cooldownActionButton({
     required String label,
     required IconData icon,
     required double size,
     required Color color,
     required Color textColor,
+    required double cooldownProgress,
     required VoidCallback onTap,
   }) {
+    final isOnCooldown = cooldownProgress > 0.0;
+
     return GestureDetector(
       onTapDown: (_) {
+        if (isOnCooldown && label != 'BLITZ') {
+          HapticFeedback.selectionClick();
+          return;
+        }
         HapticFeedback.lightImpact();
         onTap();
       },
-      child: Container(
-        width: size,
-        height: size,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: color.withValues(alpha: 0.85),
-          border: Border.all(color: Colors.white38, width: 2),
-        ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, size: size * 0.38, color: textColor),
-            const SizedBox(height: 2),
-            Text(label, style: TextStyle(fontSize: 8.5, fontWeight: FontWeight.w900, color: textColor)),
-          ],
-        ),
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          AnimatedOpacity(
+            duration: const Duration(milliseconds: 150),
+            opacity: isOnCooldown && label != 'BLITZ' ? 0.40 : 1.0,
+            child: Container(
+              width: size,
+              height: size,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: color.withValues(alpha: 0.90),
+                border: Border.all(
+                  color: label == 'BLITZ' && cooldownProgress == 0.0
+                      ? AppColors.opticYellow
+                      : Colors.white38,
+                  width: 2,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.35),
+                    blurRadius: 8,
+                    offset: const Offset(0, 3),
+                  ),
+                ],
+              ),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(icon, size: size * 0.38, color: textColor),
+                  const SizedBox(height: 1),
+                  Text(
+                    label,
+                    style: TextStyle(
+                      fontSize: (size * 0.16).clamp(7.0, 10.0),
+                      fontWeight: FontWeight.w900,
+                      color: textColor,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          if (isOnCooldown)
+            SizedBox(
+              width: size + 4,
+              height: size + 4,
+              child: CircularProgressIndicator(
+                value: cooldownProgress,
+                strokeWidth: 3.0,
+                valueColor: AlwaysStoppedAnimation<Color>(
+                  label == 'BLITZ'
+                      ? AppColors.opticYellow.withValues(alpha: 0.7)
+                      : AppColors.electricCoral.withValues(alpha: 0.7),
+                ),
+                backgroundColor: Colors.transparent,
+              ),
+            ),
+        ],
       ),
     );
   }

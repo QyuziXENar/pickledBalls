@@ -5,7 +5,6 @@ import 'package:flutter/services.dart';
 import '../../../core/constants/app_assets.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../models/game_state.dart';
-import '../../../widgets/ambient_background.dart';
 import '../../../widgets/asset_helpers.dart';
 import '../../../widgets/game_components.dart';
 

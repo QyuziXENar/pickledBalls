@@ -45,7 +45,11 @@ class PerspectiveCourtPainter extends CustomPainter {
   final double ballVy;
   final double ballVz;
   final double ballRotationAngle;
-  final List<Offset> ballTrail;
+
+  // Visual Trail & Physics Predictor
+  final List<TrailNode>? smoothTrail;
+  final List<Offset>? ballTrail;
+  final CourtPhysicsEngine? physics;
   final List<CourtParticle> particles;
   final List<BounceShockwave> shockwaves;
 
@@ -92,7 +96,9 @@ class PerspectiveCourtPainter extends CustomPainter {
     required this.ballVy,
     required this.ballVz,
     required this.ballRotationAngle,
-    required this.ballTrail,
+    this.smoothTrail,
+    this.ballTrail,
+    this.physics,
     required this.particles,
     required this.shockwaves,
     required this.blitzActive,
@@ -118,9 +124,10 @@ class PerspectiveCourtPainter extends CustomPainter {
   Offset project3D(double x, double y, double z, Size size) {
     final centerX = size.width / 2;
     final nearY = isLandscape ? size.height * 0.88 : size.height * 0.81;
-    final farY = isLandscape ? size.height * 0.20 : size.height * 0.24;
+    final farY = isLandscape ? size.height * 0.22 : size.height * 0.24;
+
     final nearWidth = isLandscape
-        ? math.min(size.width * 0.72, 620.0)
+        ? math.min(size.width * 0.58, 620.0)
         : math.min(size.width * 0.90, 540.0);
     final farWidth = nearWidth * (isLandscape ? 0.44 : 0.48);
 
@@ -143,25 +150,50 @@ class PerspectiveCourtPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     Color apronColor;
-    Color courtColor;
+    Color nearCourtColor;
+    Color farCourtColor;
     Color kitchenColor;
     Color lineCol;
     bool hasNeonGlow = false;
 
-    if (courtVenue == 'Midnight Stadium') {
+    if (courtVenue == 'Training Facility') {
+      apronColor = const Color(0xFF0F172A);
+      nearCourtColor = const Color(0xFF1E3A8A);
+      farCourtColor = const Color(0xFF1E3A8A);
+      kitchenColor = const Color(0xFFD97706);
+      lineCol = Colors.white;
+      hasNeonGlow = false;
+    } else if (courtVenue == 'Rivalry Clash') {
+      apronColor = const Color(0xFF090D14);
+      nearCourtColor = const Color(0xFF0D47A1);
+      farCourtColor = const Color(0xFFB71C1C);
+      kitchenColor = const Color(0xFF141E28);
+      lineCol = AppColors.cyberCyan;
+      hasNeonGlow = true;
+    } else if (courtVenue == 'Monochrome Street') {
+      apronColor = const Color(0xFF121212);
+      nearCourtColor = const Color(0xFF1E1E1E);
+      farCourtColor = const Color(0xFF1E1E1E);
+      kitchenColor = const Color(0xFF282828);
+      lineCol = Colors.white;
+      hasNeonGlow = false;
+    } else if (courtVenue == 'Midnight Stadium') {
       apronColor = const Color(0xFF070B10);
-      courtColor = const Color(0xFF0D1826);
+      nearCourtColor = const Color(0xFF0D1826);
+      farCourtColor = const Color(0xFF0D1826);
       kitchenColor = const Color(0xFF142438);
       lineCol = AppColors.cyberCyan;
       hasNeonGlow = true;
     } else if (courtVenue == 'Sunlit Beach') {
       apronColor = const Color(0xFFD4A373);
-      courtColor = const Color(0xFF2A9D8F);
+      nearCourtColor = const Color(0xFF2A9D8F);
+      farCourtColor = const Color(0xFF2A9D8F);
       kitchenColor = const Color(0xFF264653);
       lineCol = const Color(0xFFFFF7E6);
     } else {
       apronColor = const Color(0xFF102840);
-      courtColor = const Color(0xFF1C5382);
+      nearCourtColor = const Color(0xFF1C5382);
+      farCourtColor = const Color(0xFF1C5382);
       kitchenColor = const Color(0xFF163E63);
       lineCol = Colors.white;
     }
@@ -169,7 +201,7 @@ class PerspectiveCourtPainter extends CustomPainter {
     final pLeft = project3D(-1.40, 1.06, 0, size);
     final pRight = project3D(1.40, 1.06, 0, size);
 
-    // 1. Doom-Style Backgrounds
+    // 1. Atmosphere Horizon Background
     StadiumBackgrounds.drawAtmosphericBackground(
       canvas: canvas,
       size: size,
@@ -180,17 +212,35 @@ class PerspectiveCourtPainter extends CustomPainter {
       gameTime: gameTime,
     );
 
-    // 2. 3D Apron Slab with 10px Bevel
+    // 2. 3D Apron Slab with 10px Bevel Drop
     _draw3DCourtSlab(canvas, size, apronColor);
 
     // 3. Playable Court Floor
-    final courtPath = Path()
-      ..moveTo(project3D(-1.0, 0.0, 0, size).dx, project3D(-1.0, 0.0, 0, size).dy)
-      ..lineTo(project3D(1.0, 0.0, 0, size).dx, project3D(1.0, 0.0, 0, size).dy)
-      ..lineTo(project3D(1.0, 1.0, 0, size).dx, project3D(1.0, 1.0, 0, size).dy)
-      ..lineTo(project3D(-1.0, 1.0, 0, size).dx, project3D(-1.0, 1.0, 0, size).dy)
-      ..close();
-    canvas.drawPath(courtPath, Paint()..color = courtColor);
+    if (nearCourtColor != farCourtColor) {
+      final nearPath = Path()
+        ..moveTo(project3D(-1.0, 0.0, 0, size).dx, project3D(-1.0, 0.0, 0, size).dy)
+        ..lineTo(project3D(1.0, 0.0, 0, size).dx, project3D(1.0, 0.0, 0, size).dy)
+        ..lineTo(project3D(1.0, 0.5, 0, size).dx, project3D(1.0, 0.5, 0, size).dy)
+        ..lineTo(project3D(-1.0, 0.5, 0, size).dx, project3D(-1.0, 0.5, 0, size).dy)
+        ..close();
+      canvas.drawPath(nearPath, Paint()..color = nearCourtColor);
+
+      final farPath = Path()
+        ..moveTo(project3D(-1.0, 0.5, 0, size).dx, project3D(-1.0, 0.5, 0, size).dy)
+        ..lineTo(project3D(1.0, 0.5, 0, size).dx, project3D(1.0, 0.5, 0, size).dy)
+        ..lineTo(project3D(1.0, 1.0, 0, size).dx, project3D(1.0, 1.0, 0, size).dy)
+        ..lineTo(project3D(-1.0, 1.0, 0, size).dx, project3D(-1.0, 1.0, 0, size).dy)
+        ..close();
+      canvas.drawPath(farPath, Paint()..color = farCourtColor);
+    } else {
+      final courtPath = Path()
+        ..moveTo(project3D(-1.0, 0.0, 0, size).dx, project3D(-1.0, 0.0, 0, size).dy)
+        ..lineTo(project3D(1.0, 0.0, 0, size).dx, project3D(1.0, 0.0, 0, size).dy)
+        ..lineTo(project3D(1.0, 1.0, 0, size).dx, project3D(1.0, 1.0, 0, size).dy)
+        ..lineTo(project3D(-1.0, 1.0, 0, size).dx, project3D(-1.0, 1.0, 0, size).dy)
+        ..close();
+      canvas.drawPath(courtPath, Paint()..color = nearCourtColor);
+    }
 
     // 4. NVZ Kitchen
     final kitchenPath = Path()
@@ -201,7 +251,7 @@ class PerspectiveCourtPainter extends CustomPainter {
       ..close();
     canvas.drawPath(kitchenPath, Paint()..color = kitchenColor);
 
-    // 5. White Lines
+    // 5. White Regulation Lines
     final linePaint = Paint()
       ..color = lineCol.withValues(alpha: 0.95)
       ..style = PaintingStyle.stroke
@@ -209,7 +259,7 @@ class PerspectiveCourtPainter extends CustomPainter {
 
     if (hasNeonGlow) {
       canvas.drawPath(
-        courtPath,
+        kitchenPath,
         Paint()
           ..color = lineCol.withValues(alpha: 0.4)
           ..style = PaintingStyle.stroke
@@ -218,7 +268,14 @@ class PerspectiveCourtPainter extends CustomPainter {
       );
     }
 
-    canvas.drawPath(courtPath, linePaint);
+    final perimeterPath = Path()
+      ..moveTo(project3D(-1.0, 0.0, 0, size).dx, project3D(-1.0, 0.0, 0, size).dy)
+      ..lineTo(project3D(1.0, 0.0, 0, size).dx, project3D(1.0, 0.0, 0, size).dy)
+      ..lineTo(project3D(1.0, 1.0, 0, size).dx, project3D(1.0, 1.0, 0, size).dy)
+      ..lineTo(project3D(-1.0, 1.0, 0, size).dx, project3D(-1.0, 1.0, 0, size).dy)
+      ..close();
+    canvas.drawPath(perimeterPath, linePaint);
+
     canvas.drawLine(project3D(-1.0, 0.34, 0, size), project3D(1.0, 0.34, 0, size), linePaint);
     canvas.drawLine(project3D(-1.0, 0.66, 0, size), project3D(1.0, 0.66, 0, size), linePaint);
     canvas.drawLine(project3D(0.0, 0.0, 0, size), project3D(0.0, 0.34, 0, size), linePaint);
@@ -246,19 +303,19 @@ class PerspectiveCourtPainter extends CustomPainter {
     // 7. Net Geometry
     _draw3DPickleballNet(canvas, size, lineCol);
 
-    // 8. Reticles
+    // 8. Serve Reticle
     if (isServing) {
       _drawServeTimingReticle(canvas, size);
-    } else {
-      _drawLandingReticle(canvas, size);
     }
 
-    // 9. Ball & FX
+    // 9. Ball, Trajectory Tracer & Shadow
+    _drawBallAndShadow(canvas, size);
+
+    // 10. Particles & Shockwaves
     _drawShockwaves(canvas, size);
-    _drawBallTrailAndShadows(canvas, size);
     _drawParticles(canvas, size);
 
-    // 10. Local Player Rig
+    // 11. Local Player Rig
     _drawBillboardOrHumanoid(
       canvas: canvas,
       size: size,
@@ -391,57 +448,6 @@ class PerspectiveCourtPainter extends CustomPainter {
     canvas.drawCircle(rightTop, 3.5, capPaint);
   }
 
-  void _drawLandingReticle(Canvas canvas, Size size) {
-    if (ballZ <= 0.04 || ballVy >= 0) return;
-
-    const g = 4.6;
-    final discriminant = (ballVz * ballVz) + (2 * g * ballZ);
-    if (discriminant < 0) return;
-
-    final timeToFloor = (ballVz + math.sqrt(discriminant)) / g;
-    if (timeToFloor <= 0.02 || timeToFloor > 1.8) return;
-
-    final landingX = (ballX + (ballVx * timeToFloor)).clamp(-0.95, 0.95);
-    final landingY = (ballY + (ballVy * timeToFloor));
-
-    if (landingY < -0.22 || landingY > 0.55) return;
-
-    final targetPos = project3D(landingX, landingY, 0.0, size);
-    final scale = getScale(landingY);
-
-    final outerRadius = 24.0 * scale;
-    final ringPaint = Paint()
-      ..color = Colors.white.withValues(alpha: 0.70)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2.2;
-    canvas.drawOval(
-      Rect.fromCenter(center: targetPos, width: outerRadius * 2, height: outerRadius * 0.9),
-      ringPaint,
-    );
-
-    final progress = (ballZ / 1.6).clamp(0.0, 1.0);
-    final innerRadius = outerRadius * progress;
-    if (innerRadius > 1.5) {
-      final innerPaint = Paint()
-        ..color = AppColors.opticYellow.withValues(alpha: 0.85)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.8;
-      canvas.drawOval(
-        Rect.fromCenter(center: targetPos, width: innerRadius * 2, height: innerRadius * 0.9),
-        innerPaint,
-      );
-    }
-
-    canvas.drawCircle(targetPos, 3.0 * scale, Paint()..color = AppColors.opticYellow);
-
-    final currentShadowPos = project3D(ballX, ballY, 0.0, size);
-    final pathPaint = Paint()
-      ..color = Colors.white.withValues(alpha: 0.22)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.5;
-    canvas.drawLine(currentShadowPos, targetPos, pathPaint);
-  }
-
   void _drawServeTimingReticle(Canvas canvas, Size size) {
     final reticlePos = project3D(ballX, ballY, 0.0, size);
     final scale = getScale(ballY);
@@ -476,62 +482,174 @@ class PerspectiveCourtPainter extends CustomPainter {
     );
   }
 
-  void _drawBallTrailAndShadows(Canvas canvas, Size size) {
-    if (ballTrail.length >= 2) {
-      for (int i = 0; i < ballTrail.length - 1; i++) {
-        final p1 = project3D(ballTrail[i].dx, ballTrail[i].dy, ballZ, size);
-        final p2 = project3D(ballTrail[i + 1].dx, ballTrail[i + 1].dy, ballZ, size);
-        final alpha = ((i + 1) / ballTrail.length) * 0.35;
+  // ==========================================================================
+  // HOLOGRAPHIC PREDICTIVE TRACER ARC / PIPREVIEW
+  // ==========================================================================
+  void _drawPredictiveTracer(Canvas canvas, Size size) {
+    if (ballZ <= 0.02 || ballVy.abs() < 0.12) return;
 
-        canvas.drawLine(
-          p1,
-          p2,
-          Paint()
-            ..color = (blitzActive ? blitzColor : AppColors.opticYellow).withValues(alpha: alpha)
-            ..strokeWidth = (i * 0.9) + 1.2,
-        );
+    final List<Vector3D> trajectoryPoints = physics != null
+        ? physics!.computePredictedTrajectory(samples: 16)
+        : [];
+
+    if (trajectoryPoints.length < 2) return;
+
+    final tracerPath = Path();
+    for (int i = 0; i < trajectoryPoints.length; i++) {
+      final p = trajectoryPoints[i];
+      final screenPos = project3D(p.x, p.y, p.z, size);
+      if (i == 0) {
+        tracerPath.moveTo(screenPos.dx, screenPos.dy);
+      } else {
+        tracerPath.lineTo(screenPos.dx, screenPos.dy);
       }
     }
+
+    final beamPaint = Paint()
+      ..color = (blitzActive ? blitzColor : AppColors.opticYellow).withValues(alpha: 0.28)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.0;
+    canvas.drawPath(tracerPath, beamPaint);
+
+    // Forward flowing light pips along the arc
+    for (int i = 1; i < trajectoryPoints.length; i += 2) {
+      final p = trajectoryPoints[i];
+      final screenPos = project3D(p.x, p.y, p.z, size);
+      final phase = ((gameTime * 4.0) + (i * 0.35)) % 1.0;
+      final pipAlpha = (phase * 0.85).clamp(0.2, 0.9);
+
+      canvas.drawCircle(
+        screenPos,
+        2.5,
+        Paint()
+          ..color = Colors.white.withValues(alpha: pipAlpha)
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2.0),
+      );
+    }
+
+    // Target Landing Spot
+    final finalPoint = trajectoryPoints.last;
+    final floorLandingPos = project3D(finalPoint.x, finalPoint.y, 0.0, size);
+    final scale = getScale(finalPoint.y);
+
+    canvas.drawOval(
+      Rect.fromCenter(center: floorLandingPos, width: 28 * scale, height: 12 * scale),
+      Paint()
+        ..color = (blitzActive ? blitzColor : AppColors.opticYellow).withValues(alpha: 0.65)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.2,
+    );
+    canvas.drawCircle(floorLandingPos, 3.5 * scale, Paint()..color = Colors.white);
+  }
+
+  // ==========================================================================
+  // JITTER-FREE SMOOTH RIBBON TRAIL
+  // ==========================================================================
+  void _drawSmoothRibbonTrail(Canvas canvas, Size size) {
+    final trail = smoothTrail;
+    if (trail == null || trail.length < 2) return;
+
+    final trailColor = blitzActive ? blitzColor : AppColors.opticYellow;
+
+    for (int i = 0; i < trail.length - 1; i++) {
+      final nodeA = trail[i];
+      final nodeB = trail[i + 1];
+
+      final posA = project3D(nodeA.x, nodeA.y, nodeA.z, size);
+      final posB = project3D(nodeB.x, nodeB.y, nodeB.z, size);
+
+      final progress = (i / trail.length).clamp(0.0, 1.0);
+      final alpha = (progress * 0.65).clamp(0.05, 0.70);
+      final width = (progress * 6.5) + 1.2;
+
+      canvas.drawLine(
+        posA,
+        posB,
+        Paint()
+          ..color = trailColor.withValues(alpha: alpha)
+          ..strokeWidth = width
+          ..strokeCap = StrokeCap.round,
+      );
+    }
+  }
+
+  // ==========================================================================
+  // TRUE 3D PERFORATED SHADED WIFFLE BALL
+  // ==========================================================================
+  void _drawBallAndShadow(Canvas canvas, Size size) {
+    _drawPredictiveTracer(canvas, size);
+    _drawSmoothRibbonTrail(canvas, size);
 
     final floorPos = project3D(ballX, ballY, 0.0, size);
     final ballPos = project3D(ballX, ballY, ballZ, size);
     final scale = getScale(ballY);
 
-    final shadowSize = (1.0 + ballZ * 0.65) * scale;
-    final shadowOpacity = (0.50 / (1.0 + ballZ * 0.8)).clamp(0.12, 0.50);
+    // Grounding Drop Shadow
+    final shadowSize = (1.0 + ballZ * 0.55) * scale;
+    final shadowOpacity = (0.52 / (1.0 + ballZ * 0.75)).clamp(0.12, 0.55);
 
     canvas.drawOval(
-      Rect.fromCenter(center: floorPos, width: 20 * shadowSize, height: 9 * shadowSize),
-      Paint()..color = Colors.black45,
+      Rect.fromCenter(center: floorPos, width: 22 * shadowSize, height: 10 * shadowSize),
+      Paint()..color = Colors.black.withValues(alpha: shadowOpacity),
     );
 
-    final radius = (10.0 * scale).clamp(4.5, 14.0);
+    final radius = (11.0 * scale).clamp(5.0, 15.0);
 
+    // Blitz Glow
     if (blitzActive) {
       canvas.drawCircle(
         ballPos,
-        radius * 2.2,
+        radius * 2.3,
         Paint()
           ..color = blitzColor.withValues(alpha: 0.45)
-          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 12.0),
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 14.0),
       );
     }
 
-    final ballPaint = Paint()..color = AppColors.opticYellow;
-    canvas.drawCircle(ballPos, radius, ballPaint);
+    // 3D Sphere Convex Shading
+    final sphereRect = Rect.fromCircle(center: ballPos, radius: radius);
+    final sphereShader = RadialGradient(
+      center: const Alignment(-0.35, -0.35),
+      radius: 0.90,
+      colors: const [
+        Color(0xFFFFFF99),
+        AppColors.opticYellow,
+        Color(0xFF829E00),
+      ],
+      stops: const [0.0, 0.55, 1.0],
+    ).createShader(sphereRect);
 
-    canvas.save();
-    canvas.translate(ballPos.dx, ballPos.dy);
-    canvas.rotate(ballRotationAngle);
+    canvas.drawCircle(ballPos, radius, Paint()..shader = sphereShader);
 
-    final dimplePaint = Paint()..color = const Color(0xFF9EBF00);
-    canvas.drawCircle(Offset.zero, radius * 0.22, dimplePaint);
-    canvas.drawCircle(Offset(-radius * 0.4, -radius * 0.2), radius * 0.15, dimplePaint);
-    canvas.drawCircle(Offset(radius * 0.4, radius * 0.2), radius * 0.15, dimplePaint);
-    canvas.drawCircle(Offset(-radius * 0.15, radius * 0.4), radius * 0.14, dimplePaint);
-    canvas.drawCircle(Offset(radius * 0.15, -radius * 0.4), radius * 0.14, dimplePaint);
+    // 3D Rotating Wiffle Holes
+    final holePaint = Paint()..color = const Color(0xFF556B00);
+    const int numHoles = 5;
 
-    canvas.restore();
+    for (int i = 0; i < numHoles; i++) {
+      final angle = ballRotationAngle + (i * (2 * math.pi / numHoles));
+      final cosVal = math.cos(angle);
+      final sinVal = math.sin(angle);
+
+      if (sinVal > -0.15) {
+        final holeX = ballPos.dx + (cosVal * radius * 0.62);
+        final holeY = ballPos.dy + (sinVal * radius * 0.38);
+
+        final holeWidth = (radius * 0.28 * (1.0 - (cosVal.abs() * 0.4))).clamp(1.5, 4.5);
+        final holeHeight = (radius * 0.22).clamp(1.5, 3.5);
+
+        canvas.drawOval(
+          Rect.fromCenter(center: Offset(holeX, holeY), width: holeWidth, height: holeHeight),
+          holePaint,
+        );
+      }
+    }
+
+    // Specular Highlight Gleam
+    canvas.drawCircle(
+      ballPos + Offset(-radius * 0.32, -radius * 0.32),
+      radius * 0.18,
+      Paint()..color = Colors.white.withValues(alpha: 0.85),
+    );
   }
 
   void _drawShockwaves(Canvas canvas, Size size) {
@@ -579,11 +697,6 @@ class PerspectiveCourtPainter extends CustomPainter {
     final basePos = project3D(x, y, 0.0, size);
     final scale = getScale(y);
     final tiltAngle = (velocityX * 0.06).clamp(-0.20, 0.20);
-
-    canvas.drawOval(
-      Rect.fromCenter(center: basePos, width: 44 * scale, height: 16 * scale),
-      Paint()..color = Colors.black54,
-    );
 
     canvas.save();
     canvas.translate(basePos.dx, basePos.dy - (42 * scale));
