@@ -10,6 +10,7 @@ import '../../../widgets/game_components.dart';
 import '../../gameplay/gameplay_screen.dart';
 import '../../multiplayer/vs_ai_setup_screen.dart';
 import '../../multiplayer/vs_player_lobby_screen.dart';
+import '../../practice/practice_court_screen.dart';
 
 class BattleHomeTab extends StatelessWidget {
   final GameState state;
@@ -414,6 +415,7 @@ class BattleHomeTab extends StatelessWidget {
 
               const SizedBox(height: 12),
 
+              // VS. AI and VS. PLAYER Buttons
               Row(
                 children: [
                   Expanded(
@@ -426,7 +428,7 @@ class BattleHomeTab extends StatelessWidget {
                         );
                       },
                       child: Container(
-                        height: 58,
+                        height: 54,
                         decoration: BoxDecoration(
                           gradient: const LinearGradient(
                             colors: [Color(0xFF14382B), Color(0xFF0E281E)],
@@ -438,54 +440,13 @@ class BattleHomeTab extends StatelessWidget {
                             color: AppColors.mintAccent.withValues(alpha: 0.8),
                             width: 1.8,
                           ),
-                          boxShadow: [
-                            BoxShadow(
-                              color: AppColors.mintAccent.withValues(alpha: 0.25),
-                              blurRadius: 10,
-                              offset: const Offset(0, 4),
-                            ),
-                          ],
                         ),
-                        child: Row(
+                        child: const Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Container(
-                              padding: const EdgeInsets.all(6),
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                color: AppColors.mintAccent.withValues(alpha: 0.2),
-                              ),
-                              child: const Icon(
-                                Icons.smart_toy_rounded,
-                                color: AppColors.mintAccent,
-                                size: 18,
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            const Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'VS. AI',
-                                  style: TextStyle(
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w900,
-                                    color: Colors.white,
-                                    letterSpacing: 1.0,
-                                  ),
-                                ),
-                                Text(
-                                  'EXHIBITION',
-                                  style: TextStyle(
-                                    fontSize: 8.5,
-                                    fontWeight: FontWeight.bold,
-                                    color: AppColors.mintAccent,
-                                    letterSpacing: 0.8,
-                                  ),
-                                ),
-                              ],
-                            ),
+                            Icon(Icons.smart_toy_rounded, color: AppColors.mintAccent, size: 18),
+                            SizedBox(width: 6),
+                            Text('VS. AI', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900, color: Colors.white)),
                           ],
                         ),
                       ),
@@ -503,105 +464,77 @@ class BattleHomeTab extends StatelessWidget {
                           MaterialPageRoute(builder: (_) => const VsPlayerLobbyScreen()),
                         );
                       },
-                      child: Stack(
-                        clipBehavior: Clip.none,
-                        children: [
-                          Container(
-                            height: 58,
-                            decoration: BoxDecoration(
-                              gradient: const LinearGradient(
-                                colors: [Color(0xFF13283E), Color(0xFF0B1928)],
-                                begin: Alignment.topCenter,
-                                end: Alignment.bottomCenter,
-                              ),
-                              borderRadius: BorderRadius.circular(16),
-                              border: Border.all(
-                                color: AppColors.cyberCyan.withValues(alpha: 0.8),
-                                width: 1.8,
-                              ),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: AppColors.cyberCyan.withValues(alpha: 0.2),
-                                  blurRadius: 10,
-                                  offset: const Offset(0, 4),
-                                ),
-                              ],
-                            ),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Container(
-                                  padding: const EdgeInsets.all(6),
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    color: AppColors.cyberCyan.withValues(alpha: 0.2),
-                                  ),
-                                  child: const Icon(
-                                    Icons.people_alt_rounded,
-                                    color: AppColors.cyberCyan,
-                                    size: 18,
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                const Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      'VS. PLAYER',
-                                      style: TextStyle(
-                                        fontSize: 12.5,
-                                        fontWeight: FontWeight.w900,
-                                        color: Colors.white,
-                                        letterSpacing: 0.8,
-                                      ),
-                                    ),
-                                    Text(
-                                      'LOCAL 1v1',
-                                      style: TextStyle(
-                                        fontSize: 8.5,
-                                        fontWeight: FontWeight.bold,
-                                        color: AppColors.cyberCyan,
-                                        letterSpacing: 0.8,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ],
-                            ),
+                      child: Container(
+                        height: 54,
+                        decoration: BoxDecoration(
+                          gradient: const LinearGradient(
+                            colors: [Color(0xFF13283E), Color(0xFF0B1928)],
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
                           ),
-                          Positioned(
-                            top: -6,
-                            right: 8,
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                              decoration: BoxDecoration(
-                                gradient: AppColors.lanHostGradient,
-                                borderRadius: BorderRadius.circular(6),
-                                boxShadow: const [
-                                  BoxShadow(
-                                    color: Colors.black45,
-                                    blurRadius: 4,
-                                    offset: Offset(0, 2),
-                                  ),
-                                ],
-                              ),
-                              child: const Text(
-                                '1v1 LAN',
-                                style: TextStyle(
-                                  fontSize: 8,
-                                  fontWeight: FontWeight.w900,
-                                  color: Colors.black,
-                                  letterSpacing: 0.8,
-                                ),
-                              ),
-                            ),
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(
+                            color: AppColors.cyberCyan.withValues(alpha: 0.8),
+                            width: 1.8,
                           ),
-                        ],
+                        ),
+                        child: const Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.people_alt_rounded, color: AppColors.cyberCyan, size: 18),
+                            SizedBox(width: 6),
+                            Text('1v1 LAN', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900, color: Colors.white)),
+                          ],
+                        ),
                       ),
                     ),
                   ),
                 ],
+              ),
+
+              const SizedBox(height: 10),
+
+              // Sprint E: Scripted Practice & Tutorial Launch Card
+              BouncyButton(
+                onTap: () {
+                  AppAudio.play(context, AppAssets.sfxClick, 'Entering Practice');
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const PracticeCourtScreen()),
+                  );
+                },
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF1A1A24),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: Colors.white24),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: AppColors.opticYellow.withValues(alpha: 0.15),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(Icons.school_rounded, color: AppColors.opticYellow, size: 20),
+                      ),
+                      const SizedBox(width: 12),
+                      const Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('PRACTICE & TUTORIAL', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 12, color: Colors.white)),
+                            Text('Coach Boomer • 9 Interactive Lessons • +500 Coins', style: TextStyle(fontSize: 9.5, color: AppColors.textMuted)),
+                          ],
+                        ),
+                      ),
+                      const Icon(Icons.arrow_forward_ios_rounded, color: Colors.white38, size: 14),
+                    ],
+                  ),
+                ),
               ),
             ],
           ),

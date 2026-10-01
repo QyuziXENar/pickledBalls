@@ -7,17 +7,18 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
-import '../../../core/constants/app_assets.dart';
-import '../../../core/constants/app_colors.dart';
-import '../../../models/game_state.dart';
-import '../../../services/lan_multiplayer_manager.dart';
-import '../../../widgets/ambient_background.dart';
-import '../../../widgets/asset_helpers.dart';
+import '../../core/constants/app_assets.dart';
+import '../../core/constants/app_colors.dart';
+import '../../models/game_state.dart';
+import '../../services/lan_multiplayer_manager.dart';
+import '../../widgets/ambient_background.dart';
+import '../../widgets/asset_helpers.dart';
 import 'physics/court_physics_engine.dart';
 import 'physics/tactical_ai_controller.dart';
+import 'rendering/perspective_court_painter.dart';
 import 'widgets/gameplay_controls.dart';
 import 'widgets/gameplay_hud.dart';
-import 'rendering/perspective_court_painter.dart';
+import 'widgets/pc_controller_override.dart';
 
 enum MatchPhase {
   intro,
@@ -43,6 +44,18 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
   Duration _lastElapsed = Duration.zero;
   double _gameTime = 0.0;
   double _hitstopTimer = 0.0;
+
+  // 3:00 Match Countdown Timer
+  double _matchTimeRemaining = 180.0;
+
+  // Anti-Spam Recovery Cooldowns
+  double _driveCooldown = 0.0;
+  double _smashCooldown = 0.0;
+  double _lobCooldown = 0.0;
+
+  static const double _kMaxDriveCooldown = 0.35;
+  static const double _kMaxSmashCooldown = 0.65;
+  static const double _kMaxLobCooldown = 0.40;
 
   final Map<String, ui.Image> _sprites = {};
 
@@ -87,9 +100,8 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
   double _timingFeedbackTimer = 0.0;
 
   double _playerBlitzEnergy = 0.0;
-  double _aiBlitzEnergy = 0.0;
   bool _blitzActive = false;
-  Color _blitzTrailColor = Colors.transparent;
+  final Color _blitzTrailColor = Colors.transparent;
 
   int _playerScore = 0;
   int _aiScore = 0;
@@ -111,7 +123,7 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
   ShotType _playerCurrentShot = ShotType.normal;
   bool _playerIsDiving = false;
 
-  // Subsystem Controllers
+  // Modular Engines
   final CourtPhysicsEngine _physics = CourtPhysicsEngine();
   final TacticalAiController _ai = TacticalAiController();
 
@@ -287,6 +299,7 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
 
         _playerScore = packet['score2'] as int;
         _aiScore = packet['score1'] as int;
+        _matchTimeRemaining = (packet['time'] as num?)?.toDouble() ?? _matchTimeRemaining;
 
         final phaseName = packet['phase'] as String;
         _phase = MatchPhase.values.firstWhere((p) => p.name == phaseName, orElse: () => MatchPhase.activeRally);
@@ -324,6 +337,10 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
           event.logicalKey == LogicalKeyboardKey.shiftRight ||
           event.logicalKey == LogicalKeyboardKey.keyK) {
         _triggerPlayerSwing(ShotType.smash);
+      } else if (event.logicalKey == LogicalKeyboardKey.keyQ) {
+        if (_playerBlitzEnergy >= 1.0) {
+          _triggerPlayerSwing(ShotType.signatureBlitz);
+        }
       }
     } else if (event is KeyUpEvent) {
       _activeKeys.remove(event.logicalKey);
@@ -425,18 +442,21 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
         _setTimingFeedback('GOOD SERVE', AppColors.mintAccent);
       }
 
-      final targetX = (-_playerX * 0.45).clamp(-0.75, 0.75);
+      double targetX = (-_playerX * 0.45).clamp(-0.75, 0.75);
+      if (_joystickInputX.abs() > 0.15) {
+        targetX = (_joystickInputX * 0.70).clamp(-0.80, 0.80);
+      }
 
       if (shotType == ShotType.drive) {
-        _physics.ballVy = (isSweetSpot ? 0.90 : 0.78) * power;
-        _physics.ballVz = 1.75;
+        _physics.ballVy = (isSweetSpot ? 0.92 : 0.80) * power;
+        _physics.ballVz = isSweetSpot ? 2.15 : 2.35; // Guaranteed clearance over net
         _physics.ballVx = (targetX - _physics.ballX) * 0.55;
-        _physics.ballCurve = (_playerX * 0.35) * state.effectivePaddleSpin;
+        _physics.ballCurve = (_joystickInputX * 0.25) * state.effectivePaddleSpin;
         _physics.ballSpinVertical = 0.25;
         AppAudio.playFeatureSfx(AppAssets.sfxServeDrive);
       } else {
         _physics.ballVy = 0.62 * power;
-        _physics.ballVz = 2.65;
+        _physics.ballVz = 2.85; // Clean arching lob serve
         _physics.ballVx = (targetX - _physics.ballX) * 0.40;
         _physics.ballCurve = 0;
         _physics.ballSpinVertical = -0.15;
@@ -445,6 +465,8 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
 
       _currentRally = 1;
       _physics.spawnHitSparks(_physics.ballX, _physics.ballY, _physics.ballZ, AppColors.opticYellow);
+
+      _ai.onPlayerHitBall(difficulty: state.difficulty, ballVx: _physics.ballVx);
     });
 
     HapticFeedback.mediumImpact();
@@ -466,14 +488,14 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
       final isAggressive = rng.nextDouble() < 0.45;
 
       if (isAggressive) {
-        _physics.ballVy = -0.80 * aiChar.swingPower * pace;
-        _physics.ballVz = 1.95;
+        _physics.ballVy = -0.82 * aiChar.swingPower * pace;
+        _physics.ballVz = 2.15;
         _ai.currentShot = ShotType.drive;
         _physics.ballSpinVertical = 0.2;
         AppAudio.playFeatureSfx(AppAssets.sfxServeDrive);
       } else {
         _physics.ballVy = -0.66 * aiChar.swingPower * pace;
-        _physics.ballVz = 2.45;
+        _physics.ballVz = 2.75;
         _ai.currentShot = ShotType.lob;
         _physics.ballSpinVertical = -0.1;
         AppAudio.playFeatureSfx(AppAssets.sfxServeLob);
@@ -492,6 +514,9 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
     _timingFeedbackTimer = 1.2;
   }
 
+  // ==========================================================================
+  // TICK ENGINE: PHYSICS SIMULATION WITH GUARANTEED NET CLEARANCE
+  // ==========================================================================
   void _onGameTick(Duration elapsed) {
     if (_isPaused) {
       _lastElapsed = elapsed;
@@ -511,6 +536,20 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
     if (_shoeSqueakCooldown > 0) _shoeSqueakCooldown -= dt;
 
     setState(() {
+      // 3:00 Round Countdown Timer
+      if (_phase == MatchPhase.activeRally) {
+        _matchTimeRemaining -= dt;
+        if (_matchTimeRemaining <= 0) {
+          _matchTimeRemaining = 0;
+          _pointEnded(_playerScore >= _aiScore, 'TIME EXPIRED');
+        }
+      }
+
+      // Anti-Spam Button Cooldown Recovery
+      if (_driveCooldown > 0) _driveCooldown = math.max(0.0, _driveCooldown - dt);
+      if (_smashCooldown > 0) _smashCooldown = math.max(0.0, _smashCooldown - dt);
+      if (_lobCooldown > 0) _lobCooldown = math.max(0.0, _lobCooldown - dt);
+
       if (_timingFeedbackTimer > 0) {
         _timingFeedbackTimer -= dt;
         if (_timingFeedbackTimer <= 0) {
@@ -588,6 +627,7 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
         }
       }
 
+      // Grounded Movement Mechanics
       final state = GameState.instance;
       final character = state.selectedCharacter;
 
@@ -595,36 +635,36 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
       double targetVelY = 0.0;
 
       if (_isJoystickActive && _phase != MatchPhase.gameOver && !_isPaused) {
-        final maxSpeedX = 2.4 * character.moveSpeed;
-        final maxSpeedY = 1.4 * character.moveSpeed;
+        final maxSpeedX = 1.65 * character.moveSpeed;
+        final maxSpeedY = 1.05 * character.moveSpeed;
         targetVelX = _joystickInputX * maxSpeedX;
         targetVelY = _joystickInputY * maxSpeedY;
       }
 
       if (_activeKeys.contains(LogicalKeyboardKey.keyA) || _activeKeys.contains(LogicalKeyboardKey.arrowLeft)) {
-        targetVelX -= 2.2 * character.moveSpeed;
+        targetVelX -= 1.60 * character.moveSpeed;
       }
       if (_activeKeys.contains(LogicalKeyboardKey.keyD) || _activeKeys.contains(LogicalKeyboardKey.arrowRight)) {
-        targetVelX += 2.2 * character.moveSpeed;
+        targetVelX += 1.60 * character.moveSpeed;
       }
       if (_activeKeys.contains(LogicalKeyboardKey.keyW) || _activeKeys.contains(LogicalKeyboardKey.arrowUp)) {
-        targetVelY += 1.4 * character.moveSpeed;
+        targetVelY += 1.05 * character.moveSpeed;
       }
       if (_activeKeys.contains(LogicalKeyboardKey.keyS) || _activeKeys.contains(LogicalKeyboardKey.arrowDown)) {
-        targetVelY -= 1.4 * character.moveSpeed;
+        targetVelY -= 1.05 * character.moveSpeed;
       }
 
-      if (targetVelX.abs() > 0.6 && _lastMoveDirX.abs() > 0.6 && (targetVelX.sign != _lastMoveDirX.sign)) {
+      if (targetVelX.abs() > 0.45 && _lastMoveDirX.abs() > 0.45 && (targetVelX.sign != _lastMoveDirX.sign)) {
         if (_shoeSqueakCooldown <= 0) {
           _shoeSqueakCooldown = 0.45;
           AppAudio.playFeatureSfx(AppAssets.sfxShoeSqueak);
         }
       }
-      if (targetVelX.abs() > 0.3) {
+      if (targetVelX.abs() > 0.25) {
         _lastMoveDirX = targetVelX.sign;
       }
 
-      final accelRate = (targetVelX.abs() > 0.1) ? 14.0 : 18.0;
+      final accelRate = (targetVelX.abs() > 0.1) ? 10.0 : 13.0;
       _playerVelocityX += (targetVelX - _playerVelocityX) * math.min(1.0, accelRate * dt);
       _playerVelocityY += (targetVelY - _playerVelocityY) * math.min(1.0, accelRate * dt);
 
@@ -646,7 +686,7 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
         _playerAction = _phase == MatchPhase.serveBallInAir ? SpriteAction.serve : SpriteAction.idle;
       } else if (_playerY >= 0.28) {
         _playerAction = SpriteAction.defend;
-      } else if (_playerVelocityX.abs() > 0.3 || _playerVelocityY.abs() > 0.3) {
+      } else if (_playerVelocityX.abs() > 0.2 || _playerVelocityY.abs() > 0.2) {
         _playerAction = SpriteAction.walk;
       } else {
         _playerAction = SpriteAction.idle;
@@ -671,14 +711,17 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
 
       if (_phase != MatchPhase.activeRally) return;
 
+      // Real-time ball flight simulation with current game time for smooth trails
       _physics.updateBallFlight(
         dt: dt,
+        currentTime: _gameTime,
         onPointEnded: (playerWon, reason) => _pointEnded(playerWon, reason),
         onBallBounce: () => AppAudio.playFeatureSfx(AppAssets.sfxBallBounce),
         onNetFault: () => AppAudio.playFeatureSfx(AppAssets.sfxNetCord),
         onOutOfBounds: () => AppAudio.playFeatureSfx(AppAssets.sfxOutOfBounds),
       );
 
+      // AI Decision & Movement Loop
       if (!_isMultiplayer || _aiTookOver) {
         final aiChar = state.opponentCharacter;
 
@@ -692,6 +735,7 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
           aiChar: aiChar,
           difficulty: state.difficulty,
           currentRally: _currentRally,
+          playerY: _playerY,
         );
 
         final distY = (_physics.ballY - _ai.y).abs();
@@ -700,8 +744,20 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
         final inAiStrikeZoneX = distToAiX < (0.32 * aiChar.reachFactor);
 
         if (_physics.ballVy > 0 && inAiStrikeZoneY && inAiStrikeZoneX && _physics.ballZ > 0.05 && _physics.ballZ < 2.2) {
+          if (_physics.bouncesThisRally < 1 && _playerServing && _physics.ballZ > 0.25) {
+            _pointEnded(true, 'TWO-BOUNCE FAULT (AI Volleyed Serve)');
+            return;
+          }
+
+          if (_ai.y <= 0.66 && _physics.ballZ > 0.20 && _physics.bouncesThisRally == 0) {
+            _pointEnded(true, 'KITCHEN FAULT (AI Volleyed in NVZ)');
+            return;
+          }
+
           _ai.isDiving = distToAiX > (0.24 * aiChar.reachFactor);
           if (_ai.isDiving) AppAudio.playFeatureSfx(AppAssets.sfxPlayerDive);
+
+          final isUnderPressure = _blitzActive || _totalSmashes > 0 || _physics.ballVx.abs() > 0.55;
 
           _ai.executeTacticalShot(
             aiChar: aiChar,
@@ -710,9 +766,11 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
             playerY: _playerY,
             ballZ: _physics.ballZ,
             currentRally: _currentRally,
+            difficulty: state.difficulty,
+            isUnderPressure: isUnderPressure,
             onApplyShot: (vy, vz, vx, curve, spinZ, shot) {
               _physics.ballVy = vy;
-              _physics.ballVz = vz;
+              _physics.ballVz = math.max(vz, 2.15); // AI also clears the net reliably
               _physics.ballVx = vx;
               _physics.ballCurve = curve;
               _physics.ballSpinVertical = spinZ;
@@ -743,8 +801,19 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
     });
   }
 
+  // ==========================================================================
+  // PLAYER SWING: ANALYTICAL NET CLEARANCE
+  // ==========================================================================
   void _triggerPlayerSwing(ShotType type) {
     if (_isPaused || _phase == MatchPhase.gameOver) return;
+
+    if (type == ShotType.normal && _driveCooldown > 0) return;
+    if (type == ShotType.smash && _smashCooldown > 0) return;
+    if (type == ShotType.lob && _lobCooldown > 0) return;
+
+    if (type == ShotType.normal) _driveCooldown = _kMaxDriveCooldown;
+    if (type == ShotType.smash) _smashCooldown = _kMaxSmashCooldown;
+    if (type == ShotType.lob) _lobCooldown = _kMaxLobCooldown;
 
     final state = GameState.instance;
     final character = state.selectedCharacter;
@@ -764,7 +833,13 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
     _playerSwingAngle = 0.1;
 
     if (inStrikeZoneY && inStrikeZoneX && inAir && _physics.ballVy < 0) {
-      if (_playerY >= 0.34 && _physics.ballZ < 0.8 && _currentRally > 0) {
+      if (!_playerServing && _physics.bouncesThisRally < 1 && _physics.ballZ > 0.25) {
+        AppAudio.playFeatureSfx(AppAssets.sfxFaultBuzzer);
+        _pointEnded(false, 'TWO-BOUNCE FAULT (Must Let Serve Bounce!)');
+        return;
+      }
+
+      if (_playerY >= 0.34 && _physics.ballZ > 0.15 && _physics.bouncesThisRally == 0) {
         AppAudio.playFeatureSfx(AppAssets.sfxKitchenFault);
         _pointEnded(false, 'KITCHEN FAULT (Volleyed in NVZ!)');
         return;
@@ -776,7 +851,11 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
       _playerBlitzEnergy = (_playerBlitzEnergy + (isPerfect ? 0.35 : 0.20)).clamp(0.0, 1.0);
 
       if (state.hapticsEnabled) {
-        HapticFeedback.heavyImpact();
+        if (isSmash) {
+          HapticFeedback.heavyImpact();
+        } else {
+          HapticFeedback.mediumImpact();
+        }
       }
 
       if (type == ShotType.signatureBlitz || (_playerBlitzEnergy >= 1.0 && isSmash)) {
@@ -787,6 +866,10 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
         _addTrauma(0.55);
         _hitstopTimer = 0.03;
         AppAudio.playFeatureSfx(AppAssets.sfxPaddleSmash);
+      } else if (type == ShotType.lob) {
+        AppAudio.playFeatureSfx(AppAssets.sfxPaddleDrive);
+      } else if (_physics.ballY >= 0.25) {
+        AppAudio.playFeatureSfx(AppAssets.sfxDinkPop);
       } else {
         AppAudio.playFeatureSfx(AppAssets.sfxPaddleDrive);
       }
@@ -797,21 +880,42 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
         _setTimingFeedback('GOOD HIT', AppColors.mintAccent);
       }
 
+      // Analytical Net Clearance Formulation: Guarantees clearing net tape (Z >= 0.60m)
       final powerMultiplier = state.effectivePaddlePower * character.swingPower * pace;
-      final outVy = (isSmash ? 0.98 : 0.74) * powerMultiplier;
-      final outVz = isSmash ? 1.35 : 2.15;
+      final distToNet = (0.50 - _playerY).clamp(0.18, 0.85);
+      final rawOutVy = (isSmash ? 1.05 : (type == ShotType.lob ? 0.65 : 0.82)) * powerMultiplier;
+      final timeToNet = distToNet / (rawOutVy.abs() + 0.001);
 
-      final offsetFromCenter = (_physics.ballX - _playerX).clamp(-0.25, 0.25);
-      double targetX;
-      if (isSmash) {
-        targetX = (-_ai.x * 0.65 + (offsetFromCenter * 0.7)).clamp(-0.80, 0.80);
+      const targetClearanceZ = 0.60;
+      final requiredClearanceVz = (targetClearanceZ - _physics.ballZ + (0.5 * CourtPhysicsEngine.gravity * timeToNet * timeToNet)) / timeToNet;
+
+      double outVy = rawOutVy;
+      double outVz;
+
+      if (type == ShotType.lob) {
+        outVz = math.max(2.85, requiredClearanceVz + 0.60);
+      } else if (isSmash) {
+        outVz = math.max(1.40, requiredClearanceVz);
       } else {
-        targetX = (-_playerX * 0.45 + (offsetFromCenter * 1.0)).clamp(-0.80, 0.80);
+        outVz = math.max(2.35, requiredClearanceVz);
       }
 
-      final outVx = (targetX - _physics.ballX) * 0.48;
-      final outCurve = ((_physics.ballX - _playerX) / 0.3) * state.effectivePaddleSpin * 0.22;
-      final outSpinZ = isSmash ? 0.35 : (isPerfect ? 0.20 : 0.0);
+      // Active joystick direction influence
+      double targetX;
+      if (_joystickInputX.abs() > 0.18) {
+        targetX = (_joystickInputX * 0.78).clamp(-0.84, 0.84);
+      } else {
+        final offsetFromCenter = (_physics.ballX - _playerX).clamp(-0.25, 0.25);
+        if (isSmash) {
+          targetX = (-_ai.x * 0.65 + (offsetFromCenter * 0.7)).clamp(-0.80, 0.80);
+        } else {
+          targetX = (-_playerX * 0.45 + (offsetFromCenter * 1.0)).clamp(-0.80, 0.80);
+        }
+      }
+
+      final outVx = (targetX - _physics.ballX) * 0.50;
+      final outCurve = ((_physics.ballX - _playerX) / 0.3) * state.effectivePaddleSpin * 0.20;
+      final outSpinZ = isSmash ? 0.35 : (isPerfect ? 0.22 : 0.05);
 
       _physics.spawnHitSparks(_physics.ballX, _physics.ballY, _physics.ballZ, isSmash ? AppColors.electricCoral : AppColors.opticYellow);
 
@@ -822,6 +926,8 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
       _physics.ballVx = outVx;
       _physics.ballCurve = outCurve;
       _physics.ballSpinVertical = outSpinZ;
+
+      _ai.onPlayerHitBall(difficulty: state.difficulty, ballVx: outVx);
 
       _currentRally++;
       if (_currentRally > _longestRally) _longestRally = _currentRally;
@@ -837,31 +943,47 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
     _ai.swingAngle = 0.1;
   }
 
-  void _pointEnded(bool playerWonPoint, String reason) {
+  void _pointEnded(bool playerWonRally, String reason) {
     final target = GameState.instance.targetScore;
 
     setState(() {
       _phase = MatchPhase.pointScored;
-      _playerAction = playerWonPoint ? SpriteAction.idle : SpriteAction.loss;
-      _ai.action = playerWonPoint ? SpriteAction.loss : SpriteAction.idle;
+      _playerAction = playerWonRally ? SpriteAction.idle : SpriteAction.loss;
+      _ai.action = playerWonRally ? SpriteAction.loss : SpriteAction.idle;
       _playerIsDiving = false;
       _ai.isDiving = false;
 
-      if (playerWonPoint) {
-        _playerScore++;
-        _playerServing = true;
-        _bannerTitle = 'POINT: YOU!';
-        _bannerSubtitle = reason;
-        _bannerColor = AppColors.mintAccent;
-        AppAudio.playFeatureSfx(AppAssets.sfxPointCheer);
+      // Authentic Side-Out Scoring
+      if (playerWonRally) {
+        if (_playerServing) {
+          _playerScore++;
+          _bannerTitle = 'POINT: YOU!';
+          _bannerSubtitle = reason;
+          _bannerColor = AppColors.mintAccent;
+          AppAudio.playFeatureSfx(AppAssets.sfxPointCheer);
+        } else {
+          _playerServing = true;
+          _bannerTitle = 'SIDE-OUT!';
+          _bannerSubtitle = 'SERVICE TURNOVER TO YOU';
+          _bannerColor = AppColors.opticYellow;
+          AppAudio.playFeatureSfx(AppAssets.sfxPointCheer);
+        }
       } else {
-        _aiScore++;
-        _playerServing = false;
-        _bannerTitle = 'POINT: OPPONENT!';
-        _bannerSubtitle = reason;
-        _bannerColor = AppColors.electricCoral;
-        AppAudio.playFeatureSfx(AppAssets.sfxRoundLose);
+        if (!_playerServing) {
+          _aiScore++;
+          _bannerTitle = 'POINT: OPPONENT!';
+          _bannerSubtitle = reason;
+          _bannerColor = AppColors.electricCoral;
+          AppAudio.playFeatureSfx(AppAssets.sfxRoundLose);
+        } else {
+          _playerServing = false;
+          _bannerTitle = 'SIDE-OUT!';
+          _bannerSubtitle = 'SERVICE TURNOVER TO OPPONENT';
+          _bannerColor = AppColors.electricCoral;
+          AppAudio.playFeatureSfx(AppAssets.sfxFaultBuzzer);
+        }
       }
+
       _currentRally = 0;
       _blitzActive = false;
     });
@@ -905,8 +1027,8 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
       _currentRally = 0;
       _longestRally = 0;
       _totalSmashes = 0;
+      _matchTimeRemaining = 180.0;
       _playerBlitzEnergy = 0.0;
-      _aiBlitzEnergy = 0.0;
       _playerServing = true;
       _phase = MatchPhase.intro;
       _startIntroSequence();
@@ -946,6 +1068,7 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
                     behavior: HitTestBehavior.opaque,
                     child: Stack(
                       children: [
+                        // 2.5D Court Projection Engine
                         Positioned.fill(
                           child: Transform.translate(
                             offset: _shakeOffset,
@@ -983,7 +1106,8 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
                                 ballVy: _physics.ballVy,
                                 ballVz: _physics.ballVz,
                                 ballRotationAngle: _physics.ballRotationAngle,
-                                ballTrail: _physics.ballTrail,
+                                smoothTrail: _physics.smoothTrail,
+                                physics: _physics,
                                 particles: _physics.particles,
                                 shockwaves: _physics.shockwaves,
                                 blitzActive: _blitzActive,
@@ -1000,18 +1124,31 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
                           ),
                         ),
 
-                        // Scoreboard
+                        // Scoreboard & 3:00 Round Timer
                         Positioned(
-                          top: MediaQuery.of(context).padding.top + 8,
-                          left: 16,
-                          right: 16,
-                          child: GameplayScoreboard(
-                            state: state,
-                            opponentChar: opponentChar,
-                            playerScore: _playerScore,
-                            aiScore: _aiScore,
-                            onPause: _togglePause,
+                          top: MediaQuery.of(context).padding.top + (isLandscape ? 4 : 8),
+                          left: isLandscape ? MediaQuery.of(context).padding.left + 16 : 16,
+                          right: isLandscape ? MediaQuery.of(context).padding.right + 16 : 16,
+                          child: Center(
+                            child: ConstrainedBox(
+                              constraints: BoxConstraints(maxWidth: isLandscape ? 380 : 440),
+                              child: GameplayScoreboard(
+                                state: state,
+                                opponentChar: opponentChar,
+                                playerScore: _playerScore,
+                                aiScore: _aiScore,
+                                matchTimeRemaining: _matchTimeRemaining,
+                                onPause: _togglePause,
+                              ),
+                            ),
                           ),
+                        ),
+
+                        // Beta v3.34 Watermark
+                        Positioned(
+                          top: MediaQuery.of(context).padding.top + (isLandscape ? 8 : 14),
+                          right: isLandscape ? MediaQuery.of(context).padding.right + 20 : 68,
+                          child: const BetaWatermarkBadge(),
                         ),
 
                         // Center Banners
@@ -1024,7 +1161,7 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
                                   _bannerTitle,
                                   textAlign: TextAlign.center,
                                   style: TextStyle(
-                                    fontSize: 30,
+                                    fontSize: isLandscape ? 24 : 30,
                                     fontWeight: FontWeight.w900,
                                     letterSpacing: 2.5,
                                     color: _bannerColor,
@@ -1039,8 +1176,8 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
                                   Text(
                                     _bannerSubtitle,
                                     textAlign: TextAlign.center,
-                                    style: const TextStyle(
-                                      fontSize: 12,
+                                    style: TextStyle(
+                                      fontSize: isLandscape ? 11 : 12,
                                       fontWeight: FontWeight.w800,
                                       letterSpacing: 1.8,
                                       color: Colors.white,
@@ -1054,7 +1191,7 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
                         // Timing Feedback
                         if (_timingFeedback.isNotEmpty)
                           Positioned(
-                            bottom: isLandscape ? 90 : 130,
+                            bottom: isLandscape ? 84 : 130,
                             left: 0,
                             right: 0,
                             child: Center(
@@ -1074,69 +1211,92 @@ class _CourtGameplayScreenState extends State<CourtGameplayScreen>
                             ),
                           ),
 
+                        // Controls Overlay: Mobile Touch vs PC Keyboard
                         if (_phase != MatchPhase.gameOver && !_isPaused) ...[
-                          Positioned(
-                            bottom: 20,
-                            left: 20,
-                            child: VirtualJoystickWidget(
-                              knobOffset: _joystickKnobOffset,
-                              radius: _joystickRadius,
-                              onStart: () {
-                                setState(() {
-                                  _isJoystickActive = true;
-                                  _joystickKnobOffset = Offset.zero;
-                                });
-                              },
-                              onUpdate: (delta) {
-                                final localOffset = _joystickKnobOffset + delta;
-                                final distance = localOffset.distance;
-                                final clampedOffset = distance > _joystickRadius
-                                    ? Offset.fromDirection(localOffset.direction, _joystickRadius)
-                                    : localOffset;
+                          if (PlatformInputManager.shouldShowTouchControls) ...[
+                            Positioned(
+                              bottom: isLandscape ? 16 : 20,
+                              left: isLandscape
+                                  ? MediaQuery.of(context).padding.left + 28
+                                  : 20,
+                              child: VirtualJoystickWidget(
+                                knobOffset: _joystickKnobOffset,
+                                radius: _joystickRadius,
+                                onStart: () {
+                                  setState(() {
+                                    _isJoystickActive = true;
+                                    _joystickKnobOffset = Offset.zero;
+                                  });
+                                },
+                                onUpdate: (delta) {
+                                  final localOffset = _joystickKnobOffset + delta;
+                                  final distance = localOffset.distance;
+                                  final clampedOffset = distance > _joystickRadius
+                                      ? Offset.fromDirection(localOffset.direction, _joystickRadius)
+                                      : localOffset;
 
-                                final normalizedMag = clampedOffset.distance / _joystickRadius;
-                                double curvedX = 0.0;
-                                double curvedY = 0.0;
+                                  final normalizedMag = clampedOffset.distance / _joystickRadius;
+                                  double curvedX = 0.0;
+                                  double curvedY = 0.0;
 
-                                if (normalizedMag > _joystickDeadzone) {
-                                  final remappedMag = ((normalizedMag - _joystickDeadzone) / (1.0 - _joystickDeadzone)).clamp(0.0, 1.0);
-                                  final curvedMag = math.pow(remappedMag, 1.4).toDouble();
-                                  final direction = clampedOffset.direction;
-                                  curvedX = math.cos(direction) * curvedMag;
-                                  curvedY = -math.sin(direction) * curvedMag;
-                                }
+                                  if (normalizedMag > _joystickDeadzone) {
+                                    final remappedMag = ((normalizedMag - _joystickDeadzone) / (1.0 - _joystickDeadzone)).clamp(0.0, 1.0);
+                                    final curvedMag = math.pow(remappedMag, 1.4).toDouble();
+                                    final direction = clampedOffset.direction;
+                                    curvedX = math.cos(direction) * curvedMag;
+                                    curvedY = -math.sin(direction) * curvedMag;
+                                  }
 
-                                setState(() {
-                                  _joystickKnobOffset = clampedOffset;
-                                  _joystickInputX = curvedX;
-                                  _joystickInputY = curvedY;
-                                });
-                              },
-                              onEnd: () {
-                                setState(() {
-                                  _isJoystickActive = false;
-                                  _joystickKnobOffset = Offset.zero;
-                                  _joystickInputX = 0.0;
-                                  _joystickInputY = 0.0;
-                                });
-                              },
+                                  setState(() {
+                                    _joystickKnobOffset = clampedOffset;
+                                    _joystickInputX = curvedX;
+                                    _joystickInputY = curvedY;
+                                  });
+                                },
+                                onEnd: () {
+                                  setState(() {
+                                    _isJoystickActive = false;
+                                    _joystickKnobOffset = Offset.zero;
+                                    _joystickInputX = 0;
+                                    _joystickInputY = 0;
+                                  });
+                                },
+                              ),
                             ),
-                          ),
-
-                          Positioned(
-                            bottom: 20,
-                            right: 20,
-                            child: GameplayActionCluster(
+                            Positioned(
+                              bottom: isLandscape ? 16 : 20,
+                              right: isLandscape
+                                  ? MediaQuery.of(context).padding.right + 28
+                                  : 20,
+                              child: GameplayActionCluster(
+                                phase: _phase,
+                                playerServing: _playerServing,
+                                blitzEnergy: _playerBlitzEnergy,
+                                driveCooldown: _driveCooldown / _kMaxDriveCooldown,
+                                smashCooldown: _smashCooldown / _kMaxSmashCooldown,
+                                lobCooldown: _lobCooldown / _kMaxLobCooldown,
+                                isLandscape: isLandscape,
+                                onToss: _executeManualServeToss,
+                                onDriveServe: () => _strikeManualServe(ShotType.drive),
+                                onLobServe: () => _strikeManualServe(ShotType.lob),
+                                onSwing: (type) => _triggerPlayerSwing(type),
+                                onBlitzNotReady: () {
+                                  HapticFeedback.selectionClick();
+                                  AppAudio.playFeatureSfx(AppAssets.sfxError);
+                                  _setTimingFeedback(
+                                    '⚡ BLITZ CHARGING: ${(_playerBlitzEnergy * 100).toInt()}%',
+                                    AppColors.opticYellow,
+                                  );
+                                },
+                              ),
+                            ),
+                          ] else ...[
+                            PcKeyHintsOverlay(
                               phase: _phase,
                               playerServing: _playerServing,
                               blitzEnergy: _playerBlitzEnergy,
-                              isLandscape: isLandscape,
-                              onToss: _executeManualServeToss,
-                              onDriveServe: () => _strikeManualServe(ShotType.drive),
-                              onLobServe: () => _strikeManualServe(ShotType.lob),
-                              onSwing: (type) => _triggerPlayerSwing(type),
                             ),
-                          ),
+                          ],
                         ],
 
                         if (_isPaused)

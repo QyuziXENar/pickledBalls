@@ -29,20 +29,52 @@ class HumanoidCharacterRig {
     required double aiSwingAngle,
     required bool blitzActive,
   }) {
-    final isMoving = velocityX.abs() > 0.2 || velocityY.abs() > 0.2;
-    final strideCycle = isMoving ? math.sin(gameTime * 14.0) : 0.0;
+    final isMovingX = velocityX.abs() > 0.15;
+    final isMovingY = velocityY.abs() > 0.15;
+    final isMoving = isMovingX || isMovingY;
+
+    final isRunningUp = velocityY < -0.20;
+    final isRunningDown = velocityY > 0.20;
+    final isMovingRight = velocityX > 0.20;
+    final isMovingLeft = velocityX < -0.20;
+
+    final strideCycle = isMoving ? math.sin(gameTime * 12.0) : 0.0;
 
     final isLoss = action == SpriteAction.loss;
     final headDropY = isLoss ? (6.0 * scale) : 0.0;
-    final breathBob = isLoss ? 0.0 : math.sin(gameTime * 4.5) * 1.5 * scale;
+    final breathBob = isLoss ? 0.0 : math.sin(gameTime * 4.5) * 1.4 * scale;
 
     final isSmash = (shotType == ShotType.smash || shotType == ShotType.signatureBlitz) &&
         (action == SpriteAction.hit || swingAngle > 0.0);
     final jumpElevateY = isSmash ? -math.sin((swingAngle / math.pi).clamp(0.0, 1.0) * math.pi) * 16 * scale : 0.0;
 
+    final isCoachBoomer = charId == 'boomer' || charId == 'coach_boomer';
+
+    // Grounding Oval Shadow
+    final shadowScale = (1.0 - (jumpElevateY.abs() * 0.04)).clamp(0.5, 1.0);
+    final shadowWidth = (isDiving ? 52.0 : 38.0) * scale * shadowScale;
+    final shadowHeight = (isDiving ? 12.0 : 14.0) * scale * shadowScale;
+
+    canvas.drawOval(
+      Rect.fromCenter(
+        center: Offset((isDiving ? (velocityX.sign * 12 * scale) : 0), 10 * scale),
+        width: shadowWidth,
+        height: shadowHeight,
+      ),
+      Paint()..color = Colors.black.withValues(alpha: 0.45 * shadowScale),
+    );
+
+    canvas.save();
+
     if (isDiving) {
       canvas.rotate(isOpponent ? -0.38 : 0.38);
+    } else if (isMovingRight) {
+      canvas.rotate(0.12);
+    } else if (isMovingLeft) {
+      canvas.rotate(-0.12);
     }
+
+    final forwardLeanY = isRunningUp ? -2.5 * scale : (isRunningDown ? 1.5 * scale : 0.0);
 
     if (shotType == ShotType.signatureBlitz && (blitzActive || swingAngle > 0.0)) {
       final auraPaint = Paint()
@@ -51,26 +83,33 @@ class HumanoidCharacterRig {
       canvas.drawCircle(Offset(0, -14 * scale + jumpElevateY), 30 * scale, auraPaint);
     }
 
-    // 1. Legs & Court Shoes
+    // Legs & Sneakers
     final skinPaint = Paint()..color = const Color(0xFFFFCC80);
     final legPaint = Paint()
       ..color = const Color(0xFFE0A96D)
       ..strokeWidth = 4.2 * scale
       ..strokeCap = StrokeCap.round;
 
+    double leftLegStride = (strideCycle * 6);
+    double rightLegStride = (-strideCycle * 6);
+    if (isMovingX && !isMovingY) {
+      leftLegStride = math.sin(gameTime * 14.0) * 4;
+      rightLegStride = -math.sin(gameTime * 14.0) * 4;
+    }
+
     final leftLegOffset = Offset(
-      -6 * scale,
-      (14 + (isSmash ? -6 : strideCycle * 5)) * scale + jumpElevateY,
+      (-6 + (isMovingRight ? 2 : 0)) * scale,
+      (14 + (isSmash ? -6 : leftLegStride)) * scale + jumpElevateY,
     );
     final rightLegOffset = Offset(
-      6 * scale,
-      (14 - (isSmash ? -6 : strideCycle * 5)) * scale + jumpElevateY,
+      (6 + (isMovingLeft ? -2 : 0)) * scale,
+      (14 - (isSmash ? -6 : rightLegStride)) * scale + jumpElevateY,
     );
 
     canvas.drawLine(Offset(-6 * scale, jumpElevateY), leftLegOffset, legPaint);
     canvas.drawLine(Offset(6 * scale, jumpElevateY), rightLegOffset, legPaint);
 
-    final shoePaint = Paint()..color = Colors.white;
+    final shoePaint = Paint()..color = isCoachBoomer ? const Color(0xFF1E293B) : Colors.white;
     canvas.drawRRect(
       RRect.fromRectAndRadius(
         Rect.fromCenter(center: leftLegOffset + Offset(0, 3 * scale), width: 10 * scale, height: 5 * scale),
@@ -86,65 +125,99 @@ class HumanoidCharacterRig {
       shoePaint,
     );
 
-    // 2. Shorts
+    // Shorts
     final shortsRect = RRect.fromRectAndRadius(
       Rect.fromCenter(center: Offset(0, 2 * scale + jumpElevateY), width: 22 * scale, height: 12 * scale),
       Radius.circular(4 * scale),
     );
-    canvas.drawRRect(shortsRect, Paint()..color = const Color(0xFF1E293B));
+    canvas.drawRRect(shortsRect, Paint()..color = isCoachBoomer ? Colors.black : const Color(0xFF1E293B));
     canvas.drawRRect(
       shortsRect,
       Paint()
-        ..color = accentColor
+        ..color = isCoachBoomer ? Colors.white70 : accentColor
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1.4 * scale,
     );
 
-    // 3. Jersey
-    final jerseyCenter = Offset(0, (-14 + breathBob + jumpElevateY) * scale);
+    // Torso / Jersey (Coach Boomer has Referee Black & White Stripes)
+    final jerseyCenter = Offset(0, (-14 + breathBob + jumpElevateY + forwardLeanY) * scale);
     final jerseyRect = RRect.fromRectAndRadius(
       Rect.fromCenter(center: jerseyCenter, width: 26 * scale, height: 22 * scale),
       Radius.circular(6 * scale),
     );
 
-    canvas.drawRRect(jerseyRect, Paint()..color = bodyColor);
-    canvas.drawRRect(
-      jerseyRect,
-      Paint()
-        ..color = accentColor
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 2.0 * scale,
-    );
+    if (isCoachBoomer) {
+      canvas.drawRRect(jerseyRect, Paint()..color = Colors.white);
+      final stripePaint = Paint()
+        ..color = Colors.black
+        ..strokeWidth = 3.2 * scale;
+      for (double sx = -9 * scale; sx <= 9 * scale; sx += 6 * scale) {
+        canvas.drawLine(
+          Offset(jerseyCenter.dx + sx, jerseyCenter.dy - 10 * scale),
+          Offset(jerseyCenter.dx + sx, jerseyCenter.dy + 10 * scale),
+          stripePaint,
+        );
+      }
+    } else {
+      canvas.drawRRect(jerseyRect, Paint()..color = bodyColor);
+      canvas.drawRRect(
+        jerseyRect,
+        Paint()
+          ..color = accentColor
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2.0 * scale,
+      );
+    }
 
-    final textPainter = TextPainter(
-      text: TextSpan(
-        text: charId[0].toUpperCase(),
-        style: TextStyle(
-          fontSize: 12 * scale,
-          fontWeight: FontWeight.w900,
-          color: Colors.white.withValues(alpha: 0.85),
+    if (!isCoachBoomer) {
+      final textPainter = TextPainter(
+        text: TextSpan(
+          text: charId[0].toUpperCase(),
+          style: TextStyle(
+            fontSize: 12 * scale,
+            fontWeight: FontWeight.w900,
+            color: Colors.white.withValues(alpha: 0.85),
+          ),
         ),
-      ),
-      textDirection: TextDirection.ltr,
-    )..layout();
-    textPainter.paint(
-      canvas,
-      jerseyCenter - Offset(textPainter.width / 2, textPainter.height / 2),
-    );
+        textDirection: TextDirection.ltr,
+      )..layout();
+      textPainter.paint(
+        canvas,
+        jerseyCenter - Offset(textPainter.width / 2, textPainter.height / 2),
+      );
+    }
 
-    // 4. Head & Character Hair/Visor
-    final headCenter = Offset(0, (-32 + breathBob + headDropY + jumpElevateY) * scale);
+    // Head & Headwear
+    final headCenter = Offset(0, (-32 + breathBob + headDropY + jumpElevateY + (forwardLeanY * 1.3)) * scale);
     final headRadius = 10.0 * scale;
 
     canvas.drawCircle(headCenter + Offset(0, 2 * scale), headRadius, Paint()..color = Colors.black45);
     canvas.drawCircle(headCenter, headRadius, skinPaint);
 
-    if (charId == 'aria') {
+    if (isCoachBoomer) {
+      // Coach Boomer: Silver-Grey Hair & Whistle Lanyard
+      final hairPaint = Paint()..color = const Color(0xFFCFD8DC);
+      canvas.drawCircle(headCenter - Offset(0, 3 * scale), 9.5 * scale, hairPaint);
+      final capPaint = Paint()..color = Colors.black;
+      canvas.drawCircle(headCenter - Offset(0, 4 * scale), 9 * scale, capPaint);
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromCenter(center: headCenter + Offset((isOpponent ? -5 : 5) * scale, 3 * scale), width: 10 * scale, height: 3 * scale),
+          Radius.circular(1.5 * scale),
+        ),
+        capPaint,
+      );
+
+      // Whistle Lanyard & Silver Whistle
+      canvas.drawLine(headCenter + Offset(0, 8 * scale), jerseyCenter - Offset(0, 4 * scale), Paint()..color = Colors.black87..strokeWidth = 1.2 * scale);
+      canvas.drawCircle(jerseyCenter - Offset(0, 2 * scale), 2.5 * scale, Paint()..color = const Color(0xFFFFD54F));
+    } else if (charId == 'aria') {
       final hairPaint = Paint()..color = const Color(0xFFD84315);
       canvas.drawCircle(headCenter - Offset(0, 3 * scale), 9 * scale, hairPaint);
+      final ponytailDir = isMovingLeft ? 8 : (isMovingRight ? -8 : (isOpponent ? -8 : 8));
       canvas.drawOval(
         Rect.fromCenter(
-          center: headCenter + Offset((isOpponent ? -8 : 8) * scale, -2 * scale),
+          center: headCenter + Offset(ponytailDir * scale, -2 * scale),
           width: 8 * scale,
           height: 12 * scale,
         ),
@@ -162,15 +235,16 @@ class HumanoidCharacterRig {
     } else {
       final capPaint = Paint()..color = Colors.white;
       canvas.drawCircle(headCenter - Offset(0, 4 * scale), 9.5 * scale, capPaint);
+      final brimDir = isMovingLeft ? -5 : (isMovingRight ? 5 : (isOpponent ? -5 : 5));
       final brimRect = Rect.fromCenter(
-        center: headCenter + Offset((isOpponent ? -5 : 5) * scale, 3 * scale),
+        center: headCenter + Offset(brimDir * scale, 3 * scale),
         width: 10 * scale,
         height: 3 * scale,
       );
       canvas.drawRRect(RRect.fromRectAndRadius(brimRect, Radius.circular(1.5 * scale)), capPaint);
     }
 
-    // 5. Left Arm (Tethered serve ball pose)
+    // Left Arm (Free hand / Toss)
     final leftShoulder = jerseyCenter + Offset(-12 * scale, -6 * scale);
     Offset leftHand = leftShoulder + Offset(-4 * scale, 12 * scale);
 
@@ -178,6 +252,8 @@ class HumanoidCharacterRig {
       leftHand = leftShoulder + Offset(-3 * scale, -18 * scale);
     } else if (isSmash) {
       leftHand = leftShoulder + Offset(-8 * scale, -8 * scale);
+    } else if (isMovingX) {
+      leftHand = leftShoulder + Offset((isMovingLeft ? -6 : 2) * scale, 10 * scale);
     }
 
     final armPaint = Paint()
@@ -186,7 +262,7 @@ class HumanoidCharacterRig {
       ..strokeCap = StrokeCap.round;
     canvas.drawLine(leftShoulder, leftHand, armPaint);
 
-    // 6. Right Paddle Arm
+    // Right Paddle Arm
     final rightShoulder = jerseyCenter + Offset(12 * scale, -6 * scale);
     double armAngle = isOpponent ? 0.35 : -0.35;
 
@@ -203,6 +279,8 @@ class HumanoidCharacterRig {
       armAngle += (isOpponent ? activeSwing : -activeSwing);
     } else if (action == SpriteAction.serve) {
       armAngle = isOpponent ? -0.4 : 0.4;
+    } else if (isMovingRight) {
+      armAngle += (isOpponent ? -0.2 : 0.2);
     }
 
     canvas.save();
@@ -213,26 +291,28 @@ class HumanoidCharacterRig {
     canvas.drawLine(Offset.zero, wristPos, armPaint);
     canvas.drawCircle(wristPos, 3.2 * scale, Paint()..color = const Color(0xFFE0A96D));
 
-    // Paddle Handle firmly gripped
     final handleRect = Rect.fromLTWH(-2 * scale, wristPos.dy - (2 * scale), 4 * scale, 10 * scale);
     canvas.drawRect(handleRect, Paint()..color = const Color(0xFF1E293B));
 
-    // Paddle Face
     final paddleCenter = Offset(0, wristPos.dy + 22 * scale);
     final paddleRect = RRect.fromRectAndRadius(
       Rect.fromCenter(center: paddleCenter, width: 22 * scale, height: 30 * scale),
       Radius.circular(6 * scale),
     );
 
-    canvas.drawRRect(paddleRect, Paint()..color = isOpponent ? const Color(0xFF1E293B) : equippedPaddle.primaryColor);
+    canvas.drawRRect(
+      paddleRect,
+      Paint()..color = isCoachBoomer ? const Color(0xFF263238) : (isOpponent ? const Color(0xFF1E293B) : equippedPaddle.primaryColor),
+    );
     canvas.drawRRect(
       paddleRect,
       Paint()
-        ..color = isOpponent ? AppColors.opticYellow : equippedPaddle.accentColor
+        ..color = isCoachBoomer ? AppColors.opticYellow : (isOpponent ? AppColors.opticYellow : equippedPaddle.accentColor)
         ..style = PaintingStyle.stroke
         ..strokeWidth = 2.4 * scale,
     );
 
+    canvas.restore();
     canvas.restore();
   }
 }
