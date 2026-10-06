@@ -3,17 +3,15 @@
 import 'dart:math' as math;
 import '../../../core/constants/app_assets.dart';
 import '../../../models/game_state.dart';
-import '../gameplay_screen.dart';
-
-enum AiCourtZone { baseline, transition, kitchen }
+import '../gameplay_models.dart';
 
 class TacticalAiController {
   double x = 0.0;
   double targetX = 0.0;
   double velocityX = 0.0;
 
-  double y = 0.88;
-  double targetY = 0.88;
+  double y = 0.92;
+  double targetY = 0.92;
   double velocityY = 0.0;
 
   double swingAngle = 0.0;
@@ -23,7 +21,7 @@ class TacticalAiController {
   bool isDiving = false;
 
   double _reactionLagTimer = 0.0;
-  double _currentReactionLag = 0.08;
+  double _currentReactionLag = 0.12;
   double _unforcedErrorChance = 0.08;
   bool _isWrongFooted = false;
   double _wrongFootRecoveryTimer = 0.0;
@@ -33,8 +31,8 @@ class TacticalAiController {
     x = 0.0;
     targetX = 0.0;
     velocityX = 0.0;
-    y = 0.88;
-    targetY = 0.88;
+    y = 0.92;
+    targetY = 0.92;
     velocityY = 0.0;
     swingAngle = 0.0;
     isSwinging = false;
@@ -54,23 +52,24 @@ class TacticalAiController {
     final rng = math.Random();
     switch (difficulty) {
       case AIDifficulty.rookie:
-        _currentReactionLag = 0.12 + rng.nextDouble() * 0.05;
-        _unforcedErrorChance = 0.20;
+        _currentReactionLag = 0.24 + (rng.nextDouble() * 0.08); // 240ms - 320ms
+        _unforcedErrorChance = 0.22;
         break;
       case AIDifficulty.pro:
-        _currentReactionLag = 0.06 + rng.nextDouble() * 0.04;
-        _unforcedErrorChance = 0.07;
+        _currentReactionLag = 0.11 + (rng.nextDouble() * 0.05); // 110ms - 160ms
+        _unforcedErrorChance = 0.08;
         break;
       case AIDifficulty.legend:
-        _currentReactionLag = 0.02 + rng.nextDouble() * 0.02;
+        _currentReactionLag = 0.03 + (rng.nextDouble() * 0.03); // 30ms - 60ms
         _unforcedErrorChance = 0.02;
         break;
     }
     _reactionLagTimer = _currentReactionLag;
 
+    // Wrong-foot momentum detection
     if ((ballVx > 0.18 && velocityX < -0.25) || (ballVx < -0.18 && velocityX > 0.25)) {
       _isWrongFooted = true;
-      _wrongFootRecoveryTimer = (difficulty == AIDifficulty.rookie) ? 0.25 : 0.12;
+      _wrongFootRecoveryTimer = (difficulty == AIDifficulty.rookie) ? 0.35 : 0.18;
     }
   }
 
@@ -86,60 +85,53 @@ class TacticalAiController {
     required int currentRally,
     required double playerY,
   }) {
-    final aiMultiplier = difficulty.speedMultiplier;
+    final double aiMultiplier = difficulty.speedMultiplier;
 
-    if (_reactionLagTimer > 0) {
-      _reactionLagTimer -= dt;
-    }
-
+    if (_reactionLagTimer > 0) _reactionLagTimer -= dt;
     if (_wrongFootRecoveryTimer > 0) {
       _wrongFootRecoveryTimer -= dt;
-      if (_wrongFootRecoveryTimer <= 0) {
-        _isWrongFooted = false;
-      }
+      if (_wrongFootRecoveryTimer <= 0) _isWrongFooted = false;
     }
 
-    // 1. 2D Depth Positioning: Moves into position to hit the ball
+    // 1. 2D Depth Positioning Engine (Kitchen NVZ, Transition, Baseline)
     if (ballVy > 0) {
       if (currentRally <= 1) {
-        // Receiving serve: Hold baseline position to receive the bounce
-        targetY = 0.88;
+        // Holding baseline to receive serve
+        targetY = 0.92;
         courtZone = AiCourtZone.baseline;
-      } else if (ballZ < 1.25 && ballVy < 0.65) {
-        // Soft drop/dink: Move forward to NVZ Kitchen line
-        targetY = (difficulty == AIDifficulty.rookie) ? 0.80 : 0.68;
+      } else if (ballZ < 1.35 && ballVy < 0.70) {
+        // Soft dink: Advance to NVZ Kitchen line!
+        targetY = (difficulty == AIDifficulty.rookie) ? 0.82 : 0.68;
         courtZone = AiCourtZone.kitchen;
       } else if (ballZ > 1.8 && ballVy > 0.75) {
-        // Deep lob: Retreat to baseline
-        targetY = 0.98;
+        // Deep lob: Retreat to deep baseline
+        targetY = 1.02;
         courtZone = AiCourtZone.baseline;
       } else {
-        targetY = (difficulty == AIDifficulty.rookie) ? 0.92 : 0.84;
+        targetY = (difficulty == AIDifficulty.rookie) ? 0.95 : 0.86;
         courtZone = AiCourtZone.transition;
       }
     } else {
-      // Ball traveling back to player: Reset to ready spot
       if (difficulty == AIDifficulty.legend && currentRally > 2) {
-        targetY = 0.72;
+        targetY = 0.70;
       } else if (difficulty == AIDifficulty.pro && currentRally > 2) {
         targetY = 0.80;
       } else {
-        targetY = 0.88;
+        targetY = 0.92;
       }
     }
 
-    // 2. Lateral Tracking: Steers to intercept ball X
+    // 2. Trajectory Intercept Calculation
     if (_reactionLagTimer <= 0) {
-      final double flightTimeRemaining = ((y - ballY) / (ballVy.abs() + 0.001)).clamp(0.0, 1.2);
-      final double predictedX = (ballX + (ballVx * flightTimeRemaining)).clamp(-0.84, 0.84);
+      final double flightTime = ((y - ballY) / (ballVy.abs() + 0.001)).clamp(0.0, 1.2);
+      final double predictedX = (ballX + (ballVx * flightTime)).clamp(-0.85, 0.85);
       targetX = predictedX;
     }
 
-    final double inertiaPenalty = _isWrongFooted ? 0.65 : 1.0;
-    final oldX = x;
-    final oldY = y;
+    final double inertiaPenalty = _isWrongFooted ? 0.45 : 1.0;
+    final double oldX = x;
+    final double oldY = y;
 
-    // Responsive athletic shuffle
     final double speedX = 3.6 * aiChar.moveSpeed * aiMultiplier * inertiaPenalty;
     final double speedY = 2.2 * aiChar.moveSpeed * aiMultiplier;
 
@@ -158,6 +150,9 @@ class TacticalAiController {
     }
   }
 
+  // ==========================================================================
+  // SHOT GENERATION WITH OPEN-COURT VISION & GUARANTEED NET CLEARANCE
+  // ==========================================================================
   void executeTacticalShot({
     required CharacterModel aiChar,
     required double pace,
@@ -170,65 +165,72 @@ class TacticalAiController {
     required Function(double vy, double vz, double vx, double curve, double spinZ, ShotType shot) onApplyShot,
   }) {
     final rng = math.Random();
-    final playerIsDeep = playerY < 0.05;
-    final playerIsAtKitchen = playerY > 0.22;
+    final bool playerIsDeep = playerY < 0.05;
+    final bool playerIsAtKitchen = playerY > 0.22;
 
+    // 1. Unforced Error Simulation (Only under heavy pressure)
     if (isUnderPressure && rng.nextDouble() < _unforcedErrorChance) {
-      final errorType = rng.nextBool();
+      final bool errorType = rng.nextBool();
       if (errorType) {
-        onApplyShot(-0.50 * pace, 0.35, (rng.nextDouble() - 0.5) * 0.25, 0.0, 0.0, ShotType.normal);
+        onApplyShot(-0.55 * pace, 0.35, (rng.nextDouble() - 0.5) * 0.3, 0.0, 0.0, ShotType.normal);
       } else {
-        final outSide = rng.nextBool() ? 1.08 : -1.08;
-        onApplyShot(-0.70 * pace, 1.7, (outSide - x) * 0.5, 0.0, 0.0, ShotType.normal);
+        final double outX = rng.nextBool() ? 1.10 : -1.10;
+        onApplyShot(-0.70 * pace, 1.8, (outX - x) * 0.5, 0.0, 0.0, ShotType.normal);
       }
       return;
     }
 
+    // 2. Open Court Scanning: Attacks space player has vacated
     double openCourtX;
-    if (playerX > 0.2) {
-      openCourtX = -0.50 + (rng.nextDouble() - 0.5) * 0.20;
-    } else if (playerX < -0.2) {
-      openCourtX = 0.50 + (rng.nextDouble() - 0.5) * 0.20;
+    if (playerX > 0.20) {
+      openCourtX = -0.55 + (rng.nextDouble() - 0.5) * 0.20;
+    } else if (playerX < -0.20) {
+      openCourtX = 0.55 + (rng.nextDouble() - 0.5) * 0.20;
     } else {
-      openCourtX = (rng.nextBool() ? 0.55 : -0.55);
+      openCourtX = rng.nextBool() ? 0.60 : -0.60;
     }
-    openCourtX = openCourtX.clamp(-0.75, 0.75);
+    openCourtX = openCourtX.clamp(-0.78, 0.78);
 
-    if (ballZ > 1.15 && !playerIsAtKitchen) {
+    // 3. Selection Hierarchy (Balanced & Fair Velocities)
+    if (ballZ > 1.20 && !playerIsAtKitchen) {
+      // Overhead Smash Spike
       currentShot = ShotType.smash;
       onApplyShot(
         -0.88 * aiChar.swingPower * pace,
-        1.25,
+        1.35,
         (openCourtX - x) * 0.45,
         (rng.nextDouble() - 0.5) * 0.10,
         0.20,
         ShotType.smash,
       );
-    } else if (playerIsDeep && (courtZone == AiCourtZone.kitchen || rng.nextDouble() < 0.40)) {
+    } else if (playerIsDeep && (courtZone == AiCourtZone.kitchen || rng.nextDouble() < 0.45)) {
+      // Kitchen Drop / Dink
       currentShot = ShotType.drive;
       onApplyShot(
-        -0.42 * pace,
-        1.35,
+        -0.45 * pace,
+        1.45,
         (openCourtX - x) * 0.32,
         0.0,
         -0.12,
         ShotType.drive,
       );
-    } else if (playerIsAtKitchen && rng.nextDouble() < 0.35) {
+    } else if (playerIsAtKitchen && rng.nextDouble() < 0.38) {
+      // Defensive Lob clearing player's reach
       currentShot = ShotType.lob;
       onApplyShot(
-        -0.60 * aiChar.swingPower * pace,
-        2.45,
+        -0.62 * aiChar.swingPower * pace,
+        2.60,
         (openCourtX - x) * 0.28,
         0.0,
         -0.15,
         ShotType.lob,
       );
     } else {
+      // Regulation Flat Penetrating Drive
       currentShot = ShotType.normal;
       onApplyShot(
-        -0.66 * aiChar.swingPower * pace,
-        1.80,
+        -0.68 * aiChar.swingPower * pace,
+        1.68,
         (openCourtX - x) * 0.40,
         (rng.nextDouble() - 0.5) * 0.08,
         0.08,

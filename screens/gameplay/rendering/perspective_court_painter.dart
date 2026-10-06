@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../../../../core/constants/app_assets.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../models/game_state.dart';
+import '../court_foreground_painter.dart';
 import '../gameplay_screen.dart';
 import '../physics/court_physics_engine.dart';
 import 'humanoid_character_rig.dart';
@@ -201,7 +202,10 @@ class PerspectiveCourtPainter extends CustomPainter {
 
     final pLeft = project3D(-1.40, 1.06, 0, size);
     final pRight = project3D(1.40, 1.06, 0, size);
+    final pNearBaselineLeft = project3D(-1.0, 0.0, 0, size);
+    final pNearBaselineRight = project3D(1.0, 0.0, 0, size);
 
+    // 1. Horizon Stadium Background
     StadiumBackgrounds.drawAtmosphericBackground(
       canvas: canvas,
       size: size,
@@ -212,8 +216,19 @@ class PerspectiveCourtPainter extends CustomPainter {
       gameTime: gameTime,
     );
 
+    // 2. 3D Apron Slab with 10px Bevel Drop
     _draw3DCourtSlab(canvas, size, apronColor);
 
+    // 3. Foreground Buffer Environment (TV Cameras, Railings, Bleachers)
+    CourtForegroundPainter.drawForeground(
+      canvas: canvas,
+      size: size,
+      courtVenue: courtVenue,
+      pBottomLeft: pNearBaselineLeft,
+      pBottomRight: pNearBaselineRight,
+    );
+
+    // 4. Playable Court Floor
     if (nearCourtColor != farCourtColor) {
       final nearPath = Path()
         ..moveTo(project3D(-1.0, 0.0, 0, size).dx, project3D(-1.0, 0.0, 0, size).dy)
@@ -240,6 +255,7 @@ class PerspectiveCourtPainter extends CustomPainter {
       canvas.drawPath(courtPath, Paint()..color = nearCourtColor);
     }
 
+    // 5. NVZ Kitchen
     final kitchenPath = Path()
       ..moveTo(project3D(-1.0, 0.34, 0, size).dx, project3D(-1.0, 0.34, 0, size).dy)
       ..lineTo(project3D(1.0, 0.34, 0, size).dx, project3D(1.0, 0.34, 0, size).dy)
@@ -248,6 +264,7 @@ class PerspectiveCourtPainter extends CustomPainter {
       ..close();
     canvas.drawPath(kitchenPath, Paint()..color = kitchenColor);
 
+    // 6. White Regulation Lines
     final linePaint = Paint()
       ..color = lineCol.withValues(alpha: 0.95)
       ..style = PaintingStyle.stroke
@@ -277,6 +294,7 @@ class PerspectiveCourtPainter extends CustomPainter {
     canvas.drawLine(project3D(0.0, 0.0, 0, size), project3D(0.0, 0.34, 0, size), linePaint);
     canvas.drawLine(project3D(0.0, 0.66, 0, size), project3D(0.0, 1.0, 0, size), linePaint);
 
+    // 7. Opponent Rig
     _drawBillboardOrHumanoid(
       canvas: canvas,
       size: size,
@@ -295,17 +313,22 @@ class PerspectiveCourtPainter extends CustomPainter {
       swingAngle: aiSwingAngle,
     );
 
+    // 8. Net Geometry
     _draw3DPickleballNet(canvas, size, lineCol);
 
+    // 9. Serve Reticle
     if (isServing) {
       _drawServeTimingReticle(canvas, size);
     }
 
+    // 10. Ball, Stable Laser Trajectory & Shadow
     _drawBallAndShadow(canvas, size);
 
+    // 11. Particles & Shockwaves
     _drawShockwaves(canvas, size);
     _drawParticles(canvas, size);
 
+    // 12. Local Player Rig
     _drawBillboardOrHumanoid(
       canvas: canvas,
       size: size,

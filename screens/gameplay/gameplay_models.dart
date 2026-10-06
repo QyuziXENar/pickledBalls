@@ -1,24 +1,16 @@
 // lib/screens/gameplay/gameplay_models.dart
 
 enum MatchPhase {
-  intro,
-  serveTossWait,
-  serveBallInAir,
-  activeRally,
-  pointScored,
+  cinematicSplash, // Stage 1: Player VS Opponent Card Reveal
+  countdown,       // Stage 2: 3... 2... 1... SERVE!
+  repositioning,   // Stage 3: Automated glide to regulation service boxes
+  serveTossWait,   // Stage 4: Ball tethered in hand, waiting for toss
+  serveBallInAir,  // Stage 5: Ball descending toward below-waist strike window
+  activeRally,     // Stage 6: Live rally in play
+  pointScored,     // Fast 1.4s point beat (toast + loss stumble, zero freeze)
   gameOver,
 }
 
 enum ShotType { normal, smash, signatureBlitz, drive, lob }
 
-class MatchBannerState {
-  final String title;
-  final String subtitle;
-  final double duration;
-
-  const MatchBannerState({
-    required this.title,
-    this.subtitle = '',
-    this.duration = 1.0,
-  });
-}
+enum AiCourtZone { kitchen, transition, baseline }
