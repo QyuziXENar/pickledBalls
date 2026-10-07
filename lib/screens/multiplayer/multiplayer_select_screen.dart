@@ -6,6 +6,7 @@ import '../../core/constants/app_colors.dart';
 import '../../widgets/ambient_background.dart';
 import '../../widgets/asset_helpers.dart';
 import '../../widgets/game_components.dart';
+import 'online_leaderboard_screen.dart';
 import 'vs_online_lobby_screen.dart';
 import 'vs_player_lobby_screen.dart';
 
@@ -54,25 +55,46 @@ class MultiplayerSelectScreen extends StatelessWidget {
                         ),
                       ],
                     ),
+                    const Spacer(),
+                    // Quick Leaderboard Icon in Top-Right
+                    BouncyButton(
+                      onTap: () {
+                        AppAudio.playFeatureSfx(AppAssets.sfxClick);
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (_) => const OnlineLeaderboardScreen()),
+                        );
+                      },
+                      child: Container(
+                        width: 36,
+                        height: 36,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: AppColors.opticYellow.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: AppColors.opticYellow.withValues(alpha: 0.5)),
+                        ),
+                        child: const Icon(Icons.emoji_events_rounded, size: 18, color: AppColors.opticYellow),
+                      ),
+                    ),
                   ],
                 ),
               ),
 
-              const SizedBox(height: 10),
+              const SizedBox(height: 6),
 
-              // Selection Body
+              // Selection Body (Scrollable for all screen sizes)
               Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
                   child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       // Mode 1: LOCAL LAN
                       _buildModeCard(
                         context: context,
                         title: 'LOCAL LAN VS.',
                         subtitle: 'Same Wi-Fi Router or Direct Mobile Hotspot',
-                        description: 'Peer-to-peer WebSocket connection. 0ms ping with no internet required. Ideal for playing side-by-side.',
+                        description: 'Peer-to-peer connection. 0ms local ping with zero internet required. Best for playing side-by-side.',
                         badgeText: 'OFFLINE / READY',
                         badgeColor: AppColors.mintAccent,
                         accentColor: AppColors.cyberCyan,
@@ -86,14 +108,14 @@ class MultiplayerSelectScreen extends StatelessWidget {
                         },
                       ),
 
-                      const SizedBox(height: 18),
+                      const SizedBox(height: 14),
 
                       // Mode 2: ONLINE ARENA (WAN)
                       _buildModeCard(
                         context: context,
                         title: 'ONLINE ARENA VS.',
-                        subtitle: 'Play Anywhere across 4G/5G Cellular & Different Wi-Fi',
-                        description: 'Global room codes and internet matchmaking. Connect across different networks from home.',
+                        subtitle: 'Play Across 4G/5G Cellular & Different Wi-Fi',
+                        description: 'Global 4-letter room codes & cloud matchmaking. Duel friends from home or find rivals worldwide.',
                         badgeText: 'ONLINE CLIENT READY',
                         badgeColor: AppColors.opticYellow,
                         accentColor: AppColors.opticYellow,
@@ -106,6 +128,28 @@ class MultiplayerSelectScreen extends StatelessWidget {
                           );
                         },
                       ),
+
+                      const SizedBox(height: 14),
+
+                      // Feature 3: GLOBAL LEADERBOARDS & DUPR
+                      _buildModeCard(
+                        context: context,
+                        title: 'GLOBAL LEADERBOARDS',
+                        subtitle: 'Official DUPR Rankings & Regional Tour',
+                        description: 'Check global top pros, local division rankings, and weekly rally records. Inspect opponent stats.',
+                        badgeText: 'STANDINGS LIVE',
+                        badgeColor: const Color(0xFF4FC3F7),
+                        accentColor: const Color(0xFF00E5FF),
+                        icon: Icons.emoji_events_rounded,
+                        onTap: () {
+                          AppAudio.playFeatureSfx(AppAssets.sfxClick);
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(builder: (_) => const OnlineLeaderboardScreen()),
+                          );
+                        },
+                      ),
+                      const SizedBox(height: 14),
                     ],
                   ),
                 ),
@@ -132,16 +176,16 @@ class MultiplayerSelectScreen extends StatelessWidget {
       onTap: onTap,
       child: Container(
         width: double.infinity,
-        padding: const EdgeInsets.all(18),
+        padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
           color: const Color(0xFF0F1824),
-          borderRadius: BorderRadius.circular(22),
+          borderRadius: BorderRadius.circular(20),
           border: Border.all(color: accentColor.withValues(alpha: 0.5), width: 1.8),
           boxShadow: [
             BoxShadow(
               color: accentColor.withValues(alpha: 0.15),
-              blurRadius: 16,
-              offset: const Offset(0, 6),
+              blurRadius: 14,
+              offset: const Offset(0, 4),
             ),
           ],
         ),
@@ -157,7 +201,7 @@ class MultiplayerSelectScreen extends StatelessWidget {
                     color: accentColor.withValues(alpha: 0.18),
                     shape: BoxShape.circle,
                   ),
-                  child: Icon(icon, color: accentColor, size: 26),
+                  child: Icon(icon, color: accentColor, size: 24),
                 ),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
@@ -173,28 +217,28 @@ class MultiplayerSelectScreen extends StatelessWidget {
                 ),
               ],
             ),
-            const SizedBox(height: 14),
+            const SizedBox(height: 12),
             Text(
               title,
-              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: Colors.white, letterSpacing: 1.0),
+              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: Colors.white, letterSpacing: 1.0),
             ),
             const SizedBox(height: 2),
             Text(
               subtitle,
-              style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: accentColor),
+              style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.bold, color: accentColor),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 6),
             Text(
               description,
-              style: const TextStyle(fontSize: 10.5, color: AppColors.textMuted, height: 1.35),
+              style: const TextStyle(fontSize: 10, color: AppColors.textMuted, height: 1.35),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 10),
             Row(
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
                 Text(
-                  'ENTER ARENA',
-                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900, color: accentColor, letterSpacing: 1.0),
+                  'VIEW NOW',
+                  style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w900, color: accentColor, letterSpacing: 1.0),
                 ),
                 const SizedBox(width: 4),
                 Icon(Icons.arrow_forward_rounded, size: 14, color: accentColor),

@@ -6,28 +6,31 @@ enum SpriteAction { idle, walk, serve, hit, defend, loss }
 
 class AppAssets {
   // ==========================================================================
-  // 1. LOGOS & ICONS
+  // 1. LOGOS & FULL-SCREEN BACKGROUNDS
   // ==========================================================================
-  static const String logoCanzed = 'lib/assets/images/logos/canzed_logo.png';
-  static const String logoGame = 'lib/assets/images/logos/game_logo.png';
-  static const String logoXccr = 'lib/assets/images/logos/xccr_logo.png';
-  static const String appIcon = 'lib/assets/images/logos/game_logo.png';
-  static const String arenaDiorama = 'lib/assets/images/backgrounds/arena_diorama.png';
+  static const String companyLogo = 'lib/assets/images/logos/company_logo.png';
+  static const String gameLogo = 'lib/assets/images/logos/game_logo.png';
+  static const String appIcon = gameLogo;
+
+  // Background Images
+  static const String bgArenaDiorama = 'lib/assets/images/backgrounds/arena_diorama.png';
+  static const String arenaDiorama = bgArenaDiorama;
+  static const String bgShop = 'lib/assets/images/backgrounds/shop_bg.png';
+  static const String bgPaddles = 'lib/assets/images/backgrounds/paddles_bg.png';
+  static const String bgBattle = 'lib/assets/images/backgrounds/battle_bg.png';
+  static const String bgRoster = 'lib/assets/images/backgrounds/roster_bg.png';
 
   // ==========================================================================
-  // 2. MUSIC SOUNDTRACK
+  // 2. MUSIC & INTROS (EXACT MATCH FOR YOUR MUSIC/ FOLDER)
   // ==========================================================================
-  static const String musicBattleStart = 'lib/assets/sounds/music/battle_start.mp3';
-  static const String musicCanzedIntro = 'lib/assets/sounds/music/canzed_intro.mp3';
-  static const String musicXccrIntro = 'lib/assets/sounds/music/xccr_intro.mp3';
+  static const String companyIntro = 'lib/assets/sounds/music/company_intro.mp3';
+  static const String battleStart = 'lib/assets/sounds/music/battle_start.mp3';
 
   // ==========================================================================
-  // 3. SOUND EFFECTS (SFX)
+  // 3. SOUND EFFECTS (SFX & FOLEY)
   // ==========================================================================
-  static const String sfxBattleStart = 'lib/assets/sounds/music/battle_start.mp3';
   static const String sfxBallBounce = 'lib/assets/sounds/sfx/ball_bounce.mp3';
   static const String sfxBlitzSuper = 'lib/assets/sounds/sfx/blitz_super.mp3';
-  static const String sfxCanzedIntro = 'lib/assets/sounds/sfx/canzed_intro.mp3';
   static const String sfxClick = 'lib/assets/sounds/sfx/click.mp3';
   static const String sfxError = 'lib/assets/sounds/sfx/error.mp3';
   static const String sfxFaultBuzzer = 'lib/assets/sounds/sfx/fault_buzzer.mp3';
@@ -39,9 +42,8 @@ class AppAssets {
   static const String sfxRoundLose = 'lib/assets/sounds/sfx/round_lose.mp3';
   static const String sfxRoundWinner = 'lib/assets/sounds/sfx/round_winner.mp3';
   static const String sfxSwipe = 'lib/assets/sounds/sfx/swipe.mp3';
-  static const String sfxXccrIntro = 'lib/assets/sounds/sfx/xccr_intro.mp3';
 
-  // Gameplay FOLEY Aliases (with safe fallback mapping)
+  // Foley Aliases
   static const String sfxShoeSqueak = 'lib/assets/sounds/sfx/click.mp3';
   static const String sfxNetCord = 'lib/assets/sounds/sfx/fault_buzzer.mp3';
   static const String sfxOutOfBounds = 'lib/assets/sounds/sfx/fault_buzzer.mp3';
@@ -57,6 +59,17 @@ class AppAssets {
   static const String sfxPaddleEquip = 'lib/assets/sounds/sfx/click.mp3';
   static const String sfxTabSwipe = 'lib/assets/sounds/sfx/swipe.mp3';
   static const String sfxCharacterSelect = 'lib/assets/sounds/sfx/click.mp3';
+
+  // Backward-Compatible Aliases
+  static const String logoCanzed = companyLogo;
+  static const String logoXccr = companyLogo;
+  static const String logoGame = gameLogo;
+  static const String musicBattleStart = battleStart;
+  static const String sfxBattleStart = battleStart;
+  static const String musicCanzedIntro = companyIntro;
+  static const String musicXccrIntro = companyIntro;
+  static const String sfxCanzedIntro = companyIntro;
+  static const String sfxXccrIntro = companyIntro;
 
   // ==========================================================================
   // 4. 192-FRAME SPRITE TAXONOMY RESOLVER

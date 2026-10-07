@@ -38,18 +38,18 @@ class BattleHomeTab extends StatelessWidget {
           constraints: const BoxConstraints(maxWidth: 420),
           child: Column(
             children: [
-              // Pro Tour Arena Stage Header
+              // Clean Pro Tour Arena Stage Header Card
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
                   gradient: const LinearGradient(
-                    colors: [Color(0xFF14241D), Color(0xFF0C1613)],
+                    colors: [Color(0xFF143026), Color(0xFF0F241C)],
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
                   ),
                   borderRadius: BorderRadius.circular(18),
-                  border: Border.all(color: AppColors.opticYellow.withValues(alpha: 0.3)),
+                  border: Border.all(color: AppColors.opticYellow.withValues(alpha: 0.35)),
                   boxShadow: const [BoxShadow(color: Colors.black45, blurRadius: 10)],
                 ),
                 child: Column(
@@ -95,7 +95,7 @@ class BattleHomeTab extends StatelessWidget {
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                           decoration: BoxDecoration(
-                            color: Colors.black45,
+                            color: Colors.black54,
                             borderRadius: BorderRadius.circular(8),
                             border: Border.all(color: Colors.white12),
                           ),
@@ -131,12 +131,12 @@ class BattleHomeTab extends StatelessWidget {
                 width: double.infinity,
                 padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF0F1824),
+                  color: const Color(0xFF102636),
                   borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: athlete.accentColor.withValues(alpha: 0.5), width: 1.6),
+                  border: Border.all(color: athlete.accentColor.withValues(alpha: 0.55), width: 1.6),
                   boxShadow: [
                     BoxShadow(
-                      color: athlete.bodyColor.withValues(alpha: 0.2),
+                      color: athlete.bodyColor.withValues(alpha: 0.25),
                       blurRadius: 14,
                       offset: const Offset(0, 4),
                     ),
@@ -418,11 +418,10 @@ class BattleHomeTab extends StatelessWidget {
               // VS. AI and MULTIPLAYER (1v1 Modes) Row
               Row(
                 children: [
-                  // 1. VS AI Button
                   Expanded(
                     child: BouncyButton(
                       onTap: () {
-                        AppAudio.play(context, AppAssets.sfxClick, 'Opening AI Match Setup');
+                        AppAudio.playFeatureSfx(AppAssets.sfxClick);
                         Navigator.push(
                           context,
                           MaterialPageRoute(builder: (_) => const VsAiSetupScreen()),
@@ -456,11 +455,10 @@ class BattleHomeTab extends StatelessWidget {
 
                   const SizedBox(width: 10),
 
-                  // 2. REWORKED MULTIPLAYER BUTTON (Opens Selection Hub)
                   Expanded(
                     child: BouncyButton(
                       onTap: () {
-                        AppAudio.play(context, AppAssets.sfxClick, 'Opening Multiplayer Hub');
+                        AppAudio.playFeatureSfx(AppAssets.sfxClick);
                         Navigator.push(
                           context,
                           MaterialPageRoute(builder: (_) => const MultiplayerSelectScreen()),
@@ -532,7 +530,7 @@ class BattleHomeTab extends StatelessWidget {
               // Scripted Practice & Tutorial Launch Card
               BouncyButton(
                 onTap: () {
-                  AppAudio.play(context, AppAssets.sfxClick, 'Entering Practice');
+                  AppAudio.playFeatureSfx(AppAssets.sfxClick);
                   Navigator.push(
                     context,
                     MaterialPageRoute(builder: (_) => const PracticeCourtScreen()),
@@ -542,7 +540,7 @@ class BattleHomeTab extends StatelessWidget {
                   width: double.infinity,
                   padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF1A1A24),
+                    color: const Color(0xFF16252C),
                     borderRadius: BorderRadius.circular(16),
                     border: Border.all(color: Colors.white24),
                   ),
@@ -595,7 +593,7 @@ class BattleHomeTab extends StatelessWidget {
           decoration: BoxDecoration(
             color: isReady
                 ? accent.withValues(alpha: 0.18)
-                : const Color(0xFF0C141E),
+                : const Color(0xFF0F241C),
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
               color: isReady

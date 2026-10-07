@@ -24,35 +24,31 @@ class OnlineMultiplayerManager extends ChangeNotifier {
   OnlineMultiplayerManager._();
 
   // ==========================================================================
-  // BACKEND INTEGRATION CONFIGURATION (FOR YOUR GROUPMATE)
+  // BACKEND SWITCH (FOR JOHNMARK ON BRANCH-2)
   // ==========================================================================
-  /// Set to false when your groupmate's WebSocket / Cloud server is deployed!
+  /// Set to false when your groupmate's server / database is live!
   static bool useMockBackend = true;
-
-  /// Replace with your groupmate's server URL (e.g. wss://api.paddleblitz.com/ws)
   static String cloudServerUrl = 'wss://relay.paddleblitz.com/ws';
 
   OnlineStatus _status = OnlineStatus.disconnected;
   OnlineMatchMode _matchMode = OnlineMatchMode.quickMatch;
   String _activeRoomCode = '';
   String _errorMessage = '';
-  int _estimatedPingMs = 32;
+  int _estimatedPingMs = 34;
 
-  // Active WebSocket Connection
   WebSocket? _cloudSocket;
   StreamSubscription? _socketSub;
 
-  // Remote Rival Profile
   String _opponentName = 'Online Rival';
   String _opponentAthleteId = 'marcus';
   String _opponentPaddleId = 'volt_strike';
   bool _isOpponentReady = false;
 
-  // Packet Stream for Gameplay Engine
   final StreamController<Map<String, dynamic>> _incomingPacketController =
       StreamController<Map<String, dynamic>>.broadcast();
 
   Timer? _mockMatchmakingTimer;
+  Timer? _mockRivalChatTimer;
 
   // Getters
   OnlineStatus get status => _status;
@@ -68,7 +64,7 @@ class OnlineMultiplayerManager extends ChangeNotifier {
   Stream<Map<String, dynamic>> get packetStream => _incomingPacketController.stream;
 
   // ==========================================================================
-  // 1. QUICK MATCH QUEUE (AUTOMATIC MATCHMAKING)
+  // 1. QUICK MATCH (GLOBAL SEARCH)
   // ==========================================================================
   Future<void> startQuickMatch() async {
     await disconnect();
@@ -78,14 +74,14 @@ class OnlineMultiplayerManager extends ChangeNotifier {
     notifyListeners();
 
     if (useMockBackend) {
-      // Simulates real-world cloud server handshake after 2.5 seconds
       _mockMatchmakingTimer?.cancel();
-      _mockMatchmakingTimer = Timer(const Duration(milliseconds: 2600), () {
-        _opponentName = 'Speedster_Alex';
+      _mockMatchmakingTimer = Timer(const Duration(milliseconds: 2400), () {
+        _opponentName = 'Alex_DinkKing';
         _opponentAthleteId = 'aria';
         _opponentPaddleId = 'titan_carbon';
         _status = OnlineStatus.connected;
-        _estimatedPingMs = 28 + math.Random().nextInt(16);
+        _estimatedPingMs = 32 + math.Random().nextInt(14);
+        _scheduleMockRivalResponses();
         notifyListeners();
       });
       return;
@@ -104,19 +100,18 @@ class OnlineMultiplayerManager extends ChangeNotifier {
       });
     } catch (e) {
       _status = OnlineStatus.error;
-      _errorMessage = 'Cloud server connection failed: $e';
+      _errorMessage = 'Cloud connection error: $e';
       notifyListeners();
     }
   }
 
   // ==========================================================================
-  // 2. PRIVATE CUSTOM ROOM: CREATE (GENERATES 4-LETTER CODE)
+  // 2. PRIVATE ROOM: CREATE (4-LETTER CODE)
   // ==========================================================================
   Future<String> createPrivateRoom() async {
     await disconnect();
     _matchMode = OnlineMatchMode.privateRoom;
 
-    // Generates a readable 4-letter room code (e.g. BLTZ, ACES, SLAM)
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
     final rng = math.Random();
     _activeRoomCode = List.generate(4, (_) => chars[rng.nextInt(chars.length)]).join();
@@ -141,20 +136,20 @@ class OnlineMultiplayerManager extends ChangeNotifier {
       return _activeRoomCode;
     } catch (e) {
       _status = OnlineStatus.error;
-      _errorMessage = 'Could not create private room: $e';
+      _errorMessage = 'Could not create room: $e';
       notifyListeners();
       return '';
     }
   }
 
   // ==========================================================================
-  // 3. PRIVATE CUSTOM ROOM: JOIN (WITH 4-LETTER CODE)
+  // 3. PRIVATE ROOM: JOIN WITH CODE
   // ==========================================================================
   Future<bool> joinPrivateRoom(String roomCode) async {
     await disconnect();
     final cleanCode = roomCode.trim().toUpperCase();
     if (cleanCode.length != 4) {
-      _errorMessage = 'Room code must be 4 characters';
+      _errorMessage = 'Code must be 4 characters';
       notifyListeners();
       return false;
     }
@@ -166,12 +161,13 @@ class OnlineMultiplayerManager extends ChangeNotifier {
     notifyListeners();
 
     if (useMockBackend) {
-      await Future.delayed(const Duration(milliseconds: 1400));
-      _opponentName = 'Challenger_Dan';
-      _opponentAthleteId = 'jax';
+      await Future.delayed(const Duration(milliseconds: 1200));
+      _opponentName = 'Host_BenJ';
+      _opponentAthleteId = 'marcus';
       _opponentPaddleId = 'volt_strike';
       _status = OnlineStatus.connected;
       _isOpponentReady = true;
+      _scheduleMockRivalResponses();
       notifyListeners();
       return true;
     }
@@ -188,14 +184,14 @@ class OnlineMultiplayerManager extends ChangeNotifier {
       return true;
     } catch (e) {
       _status = OnlineStatus.error;
-      _errorMessage = 'Could not connect to room $cleanCode: $e';
+      _errorMessage = 'Connection failed: $e';
       notifyListeners();
       return false;
     }
   }
 
   // ==========================================================================
-  // 4. REAL-TIME PACKET PIPELINE (SAME SCHEMA AS LAN MANAGER)
+  // 4. REAL-TIME GAMEPLAY PACKET PIPELINE
   // ==========================================================================
   void _setupSocketListener() {
     _socketSub = _cloudSocket?.listen(
@@ -216,11 +212,11 @@ class OnlineMultiplayerManager extends ChangeNotifier {
 
           _incomingPacketController.add(packet);
         } catch (e) {
-          debugPrint('Error parsing online packet: $e');
+          debugPrint('Online packet error: $e');
         }
       },
-      onDone: () => _handleServerDisconnected(),
-      onError: (err) => _handleServerError(err.toString()),
+      onDone: () => _handleDisconnected(),
+      onError: (err) => _handleError(err.toString()),
       cancelOnError: true,
     );
   }
@@ -232,7 +228,35 @@ class OnlineMultiplayerManager extends ChangeNotifier {
       } catch (e) {
         debugPrint('Error sending online packet: $e');
       }
+    } else if (useMockBackend) {
+      // In sandbox mode, process local game loop packets
+      _processMockSandboxPacket(data);
     }
+  }
+
+  void _processMockSandboxPacket(Map<String, dynamic> packet) {
+    if (packet['type'] == 'chat') {
+      // Rival responds with friendly sportsmanship chat after 2 seconds
+      _mockRivalChatTimer?.cancel();
+      _mockRivalChatTimer = Timer(const Duration(milliseconds: 1800), () {
+        _incomingPacketController.add({
+          'type': 'chat',
+          'text': math.Random().nextBool() ? 'Paddle Tap! 🤝' : 'Nice dink! 🎯',
+        });
+      });
+    }
+  }
+
+  void _scheduleMockRivalResponses() {
+    // Intermittent ping fluctuation simulation (28ms - 42ms)
+    Timer.periodic(const Duration(seconds: 4), (t) {
+      if (_status != OnlineStatus.connected) {
+        t.cancel();
+        return;
+      }
+      _estimatedPingMs = 28 + math.Random().nextInt(14);
+      notifyListeners();
+    });
   }
 
   void toggleReadyState(bool isReady) {
@@ -243,14 +267,14 @@ class OnlineMultiplayerManager extends ChangeNotifier {
     });
   }
 
-  void _handleServerDisconnected() {
+  void _handleDisconnected() {
     _status = OnlineStatus.disconnected;
     _socketSub?.cancel();
     _cloudSocket = null;
     notifyListeners();
   }
 
-  void _handleServerError(String error) {
+  void _handleError(String error) {
     _status = OnlineStatus.error;
     _errorMessage = error;
     notifyListeners();
@@ -258,6 +282,7 @@ class OnlineMultiplayerManager extends ChangeNotifier {
 
   Future<void> disconnect() async {
     _mockMatchmakingTimer?.cancel();
+    _mockRivalChatTimer?.cancel();
     await _socketSub?.cancel();
     _socketSub = null;
 

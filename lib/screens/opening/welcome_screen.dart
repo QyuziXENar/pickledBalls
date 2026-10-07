@@ -1,14 +1,11 @@
-import 'dart:async';
+// lib/screens/opening/welcome_screen.dart
+
 import 'package:flutter/material.dart';
 import '../../core/constants/app_assets.dart';
 import '../../core/constants/app_colors.dart';
 import '../../widgets/ambient_background.dart';
 import '../../widgets/asset_helpers.dart';
 import '../lobby/lobby_screen.dart';
-
-// ============================================================================
-// CLASH ROYALE STYLE TITLE & PROGRESS LOADING SCREEN
-// ============================================================================
 
 class WelcomeScreen extends StatefulWidget {
   const WelcomeScreen({super.key});
@@ -21,15 +18,14 @@ class _WelcomeScreenState extends State<WelcomeScreen>
     with SingleTickerProviderStateMixin {
   double _loadProgress = 0.0;
   bool _isReady = false;
-  Timer? _progressTimer;
 
   int _tipIndex = 0;
   static const List<String> _pickleballTips = [
     'Tip: The serve and return must both bounce before you can volley!',
     'Tip: Stepping into the Kitchen on an air volley is an automatic fault.',
-    'Tip: Right-click or tap SMASH when the ball is high for maximum velocity.',
-    'Tip: Build your rally streak to fill your Blitz Meter to 100%!',
-    'Tip: Different athletes have unique sprint speeds and power ratings.',
+    'Tip: Strike SMASH when the ball is at apex for a thunderous spike.',
+    'Tip: Build your rally streak to fill your Blitz Gauge to 100%!',
+    'Tip: Distribute Upgrade Points (UP) to boost Power, Control, and Agility.',
   ];
 
   late AnimationController _pulseController;
@@ -39,7 +35,6 @@ class _WelcomeScreenState extends State<WelcomeScreen>
   void initState() {
     super.initState();
 
-    // Pulsing "TAP TO START" text
     _pulseController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 900),
@@ -49,26 +44,27 @@ class _WelcomeScreenState extends State<WelcomeScreen>
       CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
     );
 
-    // Simulated Clash Royale 0% -> 100% Loading Bar
-    _progressTimer = Timer.periodic(const Duration(milliseconds: 30), (timer) {
+    // Simulated Loading Bar
+    Future.doWhile(() async {
+      await Future.delayed(const Duration(milliseconds: 32));
+      if (!mounted) return false;
       setState(() {
-        _loadProgress += 0.015;
+        _loadProgress += 0.018;
         if (_loadProgress >= 0.5 && _tipIndex == 0) {
-          _tipIndex = 1; // Cycle tip midway
+          _tipIndex = 1;
         }
         if (_loadProgress >= 1.0) {
           _loadProgress = 1.0;
           _isReady = true;
-          _progressTimer?.cancel();
-          AppAudio.play(context, AppAssets.musicBattleStart, 'Clash Trumpet Start Jingle');
+          AppAudio.play(context, AppAssets.musicBattleStart, 'Title Start Fanfare');
         }
       });
+      return _loadProgress < 1.0;
     });
   }
 
   @override
   void dispose() {
-    _progressTimer?.cancel();
     _pulseController.dispose();
     super.dispose();
   }
@@ -93,7 +89,12 @@ class _WelcomeScreenState extends State<WelcomeScreen>
       onTap: _onScreenTapped,
       behavior: HitTestBehavior.opaque,
       child: Scaffold(
+        backgroundColor: AppColors.darkBg,
+        // ====================================================================
+        // FULL-SCREEN ARENA DIORAMA BACKGROUND
+        // ====================================================================
         body: AmbientCourtBackground(
+          backgroundAsset: AppAssets.arenaDiorama,
           child: SafeArea(
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
@@ -101,9 +102,9 @@ class _WelcomeScreenState extends State<WelcomeScreen>
                 children: [
                   const Spacer(flex: 2),
 
-                  // Game Logo: Tries PNG file first, falls back to 3D badge
+                  // Game Logo with Glowing Halo
                   AppAssetImage(
-                    assetPath: AppAssets.logoGame,
+                    assetPath: AppAssets.gameLogo,
                     width: 140,
                     height: 140,
                     fallback: Container(
@@ -130,7 +131,7 @@ class _WelcomeScreenState extends State<WelcomeScreen>
                   ),
                   const SizedBox(height: 24),
 
-                  // 3D Game Title
+                  // 3D Game Title Badge
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
@@ -160,14 +161,13 @@ class _WelcomeScreenState extends State<WelcomeScreen>
                   const SizedBox(height: 6),
                   const Text(
                     'Precision Dinks. Electric Volleys.',
-                    style: TextStyle(fontSize: 13, color: AppTheme.textMuted, letterSpacing: 1.0),
+                    style: TextStyle(fontSize: 13, color: AppColors.textMuted, letterSpacing: 1.0),
                   ),
 
                   const Spacer(flex: 3),
 
-                  // BOTTOM SECTION: Clash Royale Loading Bar OR "Tap Anywhere"
+                  // Bottom Section: Loading Bar OR "Tap Anywhere"
                   if (!_isReady) ...[
-                    // Pro Pickleball Tip
                     AnimatedSwitcher(
                       duration: const Duration(milliseconds: 300),
                       child: Text(
@@ -182,8 +182,6 @@ class _WelcomeScreenState extends State<WelcomeScreen>
                       ),
                     ),
                     const SizedBox(height: 16),
-
-                    // Progress Bar Container
                     Container(
                       width: double.infinity,
                       height: 22,
@@ -201,7 +199,7 @@ class _WelcomeScreenState extends State<WelcomeScreen>
                               value: _loadProgress,
                               minHeight: 22,
                               backgroundColor: Colors.transparent,
-                              valueColor: const AlwaysStoppedAnimation(Color(0xFF00E676)),
+                              valueColor: const AlwaysStoppedAnimation(AppColors.mintAccent),
                             ),
                           ),
                           Text(
@@ -216,7 +214,6 @@ class _WelcomeScreenState extends State<WelcomeScreen>
                       ),
                     ),
                   ] else ...[
-                    // Ready: Pulsing "Tap to Start"
                     FadeTransition(
                       opacity: _pulseAnimation,
                       child: Column(
@@ -226,14 +223,14 @@ class _WelcomeScreenState extends State<WelcomeScreen>
                             style: TextStyle(
                               fontSize: 17,
                               fontWeight: FontWeight.w900,
-                              color: AppTheme.opticYellow,
+                              color: AppColors.opticYellow,
                               letterSpacing: 2.0,
                             ),
                           ),
                           const SizedBox(height: 6),
                           Text(
-                            'Touch anywhere on screen to step onto the court',
-                            style: TextStyle(fontSize: 11, color: Colors.white.withValues(alpha: 0.5)),
+                            'Step onto the court and claim tournament glory',
+                            style: TextStyle(fontSize: 11, color: Colors.white.withValues(alpha: 0.6)),
                           ),
                         ],
                       ),

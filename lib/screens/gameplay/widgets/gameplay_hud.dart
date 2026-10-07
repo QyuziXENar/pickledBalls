@@ -5,9 +5,6 @@ import '../../../../core/constants/app_colors.dart';
 import '../../../../models/game_state.dart';
 import '../../../../widgets/game_components.dart';
 
-// ============================================================================
-// TOP SCOREBOARD & 3:00 COUNTDOWN TIMER (PER IMAGE SKETCH)
-// ============================================================================
 class GameplayScoreboard extends StatelessWidget {
   final GameState state;
   final CharacterModel opponentChar;
@@ -15,6 +12,7 @@ class GameplayScoreboard extends StatelessWidget {
   final int aiScore;
   final double matchTimeRemaining;
   final VoidCallback onPause;
+  final VoidCallback onOpenChat;
 
   const GameplayScoreboard({
     super.key,
@@ -24,6 +22,7 @@ class GameplayScoreboard extends StatelessWidget {
     required this.aiScore,
     required this.matchTimeRemaining,
     required this.onPause,
+    required this.onOpenChat,
   });
 
   String _formatTime(double seconds) {
@@ -43,20 +42,39 @@ class GameplayScoreboard extends StatelessWidget {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            // Pause Button
-            BouncyButton(
-              onTap: onPause,
-              child: Container(
-                width: 38,
-                height: 38,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: AppColors.glassFill,
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: AppColors.glassBorder),
+            // Pause & Quick-Chat Button Cluster
+            Row(
+              children: [
+                BouncyButton(
+                  onTap: onPause,
+                  child: Container(
+                    width: 36,
+                    height: 36,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: AppColors.glassFill,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: AppColors.glassBorder),
+                    ),
+                    child: const Icon(Icons.pause_rounded, size: 18, color: Colors.white),
+                  ),
                 ),
-                child: const Icon(Icons.pause_rounded, size: 20, color: Colors.white),
-              ),
+                const SizedBox(width: 8),
+                BouncyButton(
+                  onTap: onOpenChat,
+                  child: Container(
+                    width: 36,
+                    height: 36,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: AppColors.glassFill,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: AppColors.opticYellow.withValues(alpha: 0.5)),
+                    ),
+                    child: const Icon(Icons.chat_bubble_outline_rounded, size: 17, color: AppColors.opticYellow),
+                  ),
+                ),
+              ],
             ),
 
             // Score Capsule [ 04 | 01 ]
@@ -101,7 +119,7 @@ class GameplayScoreboard extends StatelessWidget {
               ),
             ),
 
-            // First to Target Points Badge
+            // Target Points Indicator
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
               decoration: BoxDecoration(
@@ -122,7 +140,7 @@ class GameplayScoreboard extends StatelessWidget {
 
         const SizedBox(height: 4),
 
-        // Round Timer: Exactly 3:00 underneath the capsule
+        // Round Timer (3:00 Clock)
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
           decoration: BoxDecoration(
@@ -148,9 +166,6 @@ class GameplayScoreboard extends StatelessWidget {
   }
 }
 
-// ============================================================================
-// BETA v3.34 WATERMARK OVERLAY
-// ============================================================================
 class BetaWatermarkBadge extends StatelessWidget {
   const BetaWatermarkBadge({super.key});
 
@@ -177,9 +192,6 @@ class BetaWatermarkBadge extends StatelessWidget {
   }
 }
 
-// ============================================================================
-// PAUSE OVERLAY
-// ============================================================================
 class PauseMenuOverlay extends StatelessWidget {
   final VoidCallback onResume;
   final VoidCallback onForfeit;
@@ -236,90 +248,6 @@ class PauseMenuOverlay extends StatelessWidget {
                 ),
               ],
             ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// ============================================================================
-// GAME OVER STATS MODAL
-// ============================================================================
-class GameOverModal extends StatelessWidget {
-  final bool playerWon;
-  final int playerScore;
-  final int aiScore;
-  final VoidCallback onRematch;
-  final VoidCallback onReturn;
-
-  const GameOverModal({
-    super.key,
-    required this.playerWon,
-    required this.playerScore,
-    required this.aiScore,
-    required this.onRematch,
-    required this.onReturn,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      color: Colors.black87,
-      alignment: Alignment.center,
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 380),
-        child: GlassCard(
-          padding: const EdgeInsets.all(24),
-          borderColor: playerWon ? AppColors.opticYellow : AppColors.electricCoral,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                playerWon ? Icons.emoji_events_rounded : Icons.highlight_off_rounded,
-                size: 54,
-                color: playerWon ? AppColors.opticYellow : AppColors.electricCoral,
-              ),
-              const SizedBox(height: 10),
-              Text(
-                playerWon ? 'VICTORY!' : 'MATCH DEFEAT',
-                style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900, letterSpacing: 1.2),
-              ),
-              Text(
-                'Final: $playerScore - $aiScore',
-                style: const TextStyle(color: Colors.white70, fontSize: 14, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 18),
-              BouncyButton(
-                onTap: onRematch,
-                child: Container(
-                  width: double.infinity,
-                  height: 46,
-                  decoration: BoxDecoration(
-                    color: AppColors.opticYellow,
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: const Center(
-                    child: Text('PLAY REMATCH', style: TextStyle(color: Colors.black, fontWeight: FontWeight.w900)),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 8),
-              BouncyButton(
-                onTap: onReturn,
-                child: Container(
-                  width: double.infinity,
-                  height: 44,
-                  decoration: BoxDecoration(
-                    color: AppColors.glassFill,
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: const Center(
-                    child: Text('RETURN TO LOBBY', style: TextStyle(color: Colors.white70, fontWeight: FontWeight.bold)),
-                  ),
-                ),
-              ),
-            ],
           ),
         ),
       ),
