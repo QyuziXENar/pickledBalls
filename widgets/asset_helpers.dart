@@ -6,28 +6,30 @@ import 'package:flutter/services.dart';
 import '../models/game_state.dart';
 
 // ============================================================================
-// ZERO-CRASH ASSET MANIFEST REGISTRY
+// ASSET MANIFEST REGISTRY
 // ============================================================================
 class AppAssetRegistry {
   static Set<String> _bundledAssets = {};
   static bool _initialized = false;
 
-  /// Inspects the app's compiled asset bundle at runtime.
   static Future<void> init() async {
     if (_initialized) return;
     try {
       final manifest = await AssetManifest.loadFromAssetBundle(rootBundle);
       _bundledAssets = manifest.listAssets().toSet();
       _initialized = true;
+      debugPrint('[AppAssetRegistry] Indexed ${_bundledAssets.length} assets.');
     } catch (e) {
-      debugPrint('AssetManifest index note: $e');
+      debugPrint('[AppAssetRegistry init error]: $e');
     }
   }
 
-  /// Verifies if an asset file actually exists inside the bundle.
   static bool hasAsset(String path) {
-    if (!_initialized) return true; // If manifest not ready, allow safe attempt
-    return _bundledAssets.contains(path);
+    if (!_initialized || _bundledAssets.isEmpty) return true;
+    final clean = path.replaceAll('\\', '/');
+    return _bundledAssets.contains(clean) ||
+        _bundledAssets.contains('lib/$clean') ||
+        (clean.startsWith('lib/') && _bundledAssets.contains(clean.substring(4)));
   }
 }
 
@@ -67,23 +69,25 @@ class AppAssetImage extends StatelessWidget {
 }
 
 // ============================================================================
-// LOW-LATENCY ZERO-CRASH AUDIO CONTROLLER (iOS AMBIENT & MIX-WITH-OTHERS)
+// FAILSAFE AUDIO CONTROLLER (AUTO-CHECKS MUSIC AND SFX DIRECTORIES)
 // ============================================================================
 class AppAudio {
   static final AudioPlayer _musicPlayer = AudioPlayer();
   static final AudioPlayer _sfxPlayer = AudioPlayer();
   static bool _initialized = false;
 
-  /// Configures iOS AVAudioSessionCategory.ambient and Android gainTransientMayDuck
   static Future<void> init() async {
     if (_initialized) return;
 
     try {
+      AudioCache.instance = AudioCache(prefix: '');
+      _musicPlayer.audioCache.prefix = '';
+      _sfxPlayer.audioCache.prefix = '';
+
       await AudioPlayer.global.setAudioContext(
         AudioContext(
           iOS: AudioContextIOS(
             category: AVAudioSessionCategory.ambient,
-            // Uses Set<AVAudioSessionOptions> with curly braces {} to satisfy audioplayers 6.x
             options: const {
               AVAudioSessionOptions.mixWithOthers,
               AVAudioSessionOptions.duckOthers,
@@ -99,75 +103,80 @@ class AppAudio {
         ),
       );
 
-      _musicPlayer.audioCache.prefix = '';
-      _sfxPlayer.audioCache.prefix = '';
       await _sfxPlayer.setPlayerMode(PlayerMode.lowLatency);
+      await _musicPlayer.setVolume(1.0);
+      await _sfxPlayer.setVolume(1.0);
 
       _initialized = true;
     } catch (e) {
-      debugPrint('Audio initialization note: $e');
+      debugPrint('[AppAudio init note]: $e');
     }
   }
 
-  /// Plays dedicated in-game SFX with safe path and manifest checking
-  static Future<void> playFeatureSfx(String soundPath) async {
-    if (!GameState.instance.soundEnabled) return;
-    await init();
+  /// Builds all possible asset paths to guarantee audio is found
+  static List<String> _resolvePaths(String input) {
+    final clean = input.replaceAll('\\', '/');
+    final filename = clean.split('/').last;
 
-    // Resolves both full paths ('lib/assets/sounds/sfx/...') and raw filenames ('click.mp3')
-    final cleanPath = soundPath.startsWith('lib/') || soundPath.startsWith('assets/')
-        ? soundPath
-        : 'lib/assets/sounds/sfx/$soundPath';
-
-    if (!AppAssetRegistry.hasAsset(cleanPath)) {
-      return; // Safe silent bypass (Zero 404!)
-    }
-
-    try {
-      await _sfxPlayer.stop();
-      await _sfxPlayer.play(AssetSource(cleanPath));
-    } catch (e) {
-      debugPrint('SFX playback note ($cleanPath): $e');
-    }
+    return [
+      clean,
+      if (clean.startsWith('lib/')) clean.substring(4),
+      'lib/assets/sounds/music/$filename',
+      'assets/sounds/music/$filename',
+      'lib/assets/sounds/sfx/$filename',
+      'assets/sounds/sfx/$filename',
+    ];
   }
 
-  /// Backward-compatible alias for existing dialogs and widgets
-  static Future<void> playSfx(String soundFileName) async {
-    await playFeatureSfx(soundFileName);
-  }
-
-  /// Plays background music and intro tracks
+  /// Plays background music and intro sequences
   static Future<void> playMusic(String soundPath) async {
     if (!GameState.instance.soundEnabled) return;
     await init();
 
-    final isSfxFolder = soundPath.contains('intro') || soundPath.contains('fault') || soundPath.contains('bounce');
-    final folder = isSfxFolder ? 'sfx' : 'music';
+    final candidatePaths = _resolvePaths(soundPath);
+    bool played = false;
 
-    final cleanPath = soundPath.startsWith('lib/') || soundPath.startsWith('assets/')
-        ? soundPath
-        : 'lib/assets/sounds/$folder/$soundPath';
-
-    if (!AppAssetRegistry.hasAsset(cleanPath)) {
-      // Automatic bridge: if xccr_intro is called but canzed_intro is on disk, fallback cleanly
-      if (soundPath.contains('intro') && AppAssetRegistry.hasAsset('lib/assets/sounds/sfx/canzed_intro.mp3')) {
-        try {
-          await _musicPlayer.stop();
-          await _musicPlayer.play(AssetSource('lib/assets/sounds/sfx/canzed_intro.mp3'));
-        } catch (_) {}
+    for (final path in candidatePaths) {
+      try {
+        await _musicPlayer.stop();
+        await _musicPlayer.setVolume(1.0);
+        await _musicPlayer.play(AssetSource(path));
+        debugPrint('[AppAudio] Playing music track: $path');
+        played = true;
+        break;
+      } catch (_) {
+        // Try next candidate path
       }
-      return;
     }
 
-    try {
-      await _musicPlayer.stop();
-      await _musicPlayer.play(AssetSource(cleanPath));
-    } catch (e) {
-      debugPrint('Music playback note ($cleanPath): $e');
+    if (!played) {
+      debugPrint('[AppAudio] Could not play music for: $soundPath');
     }
   }
 
-  /// Legacy dispatcher for intro and UI taps
+  /// Plays gameplay sound effects
+  static Future<void> playFeatureSfx(String soundPath) async {
+    if (!GameState.instance.soundEnabled) return;
+    await init();
+
+    final candidatePaths = _resolvePaths(soundPath);
+
+    for (final path in candidatePaths) {
+      try {
+        await _sfxPlayer.stop();
+        await _sfxPlayer.setVolume(1.0);
+        await _sfxPlayer.play(AssetSource(path));
+        break;
+      } catch (_) {
+        // Try next candidate
+      }
+    }
+  }
+
+  static Future<void> playSfx(String soundFileName) async {
+    await playFeatureSfx(soundFileName);
+  }
+
   static Future<void> play(BuildContext? context, String soundFile, String placeholderText) async {
     if (soundFile.contains('jingle') || soundFile.contains('intro') || soundFile.contains('battle_start')) {
       await playMusic(soundFile);

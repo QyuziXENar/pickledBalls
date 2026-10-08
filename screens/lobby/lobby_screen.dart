@@ -7,6 +7,7 @@ import '../../core/constants/app_colors.dart';
 import '../../models/game_state.dart';
 import '../../widgets/ambient_background.dart';
 import '../../widgets/asset_helpers.dart';
+import '../multiplayer/online_leaderboard_screen.dart';
 import 'tabs/athlete_roster_tab.dart';
 import 'tabs/battle_home_tab.dart';
 import 'tabs/paddles_vault_tab.dart';
@@ -50,6 +51,23 @@ class _LobbyScreenState extends State<LobbyScreen> {
     );
   }
 
+  String? _getActiveBackgroundAsset() {
+    switch (_currentTabIndex) {
+      case 0:
+        return AppAssets.bgShop;
+      case 1:
+        return AppAssets.bgPaddles;
+      case 2:
+        return AppAssets.bgBattle;
+      case 3:
+        return AppAssets.bgRoster;
+      case 4:
+        return null; // Settings uses bright ambient lighting
+      default:
+        return AppAssets.arenaDiorama;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
@@ -60,6 +78,8 @@ class _LobbyScreenState extends State<LobbyScreen> {
         return Scaffold(
           backgroundColor: AppColors.darkBg,
           body: AmbientCourtBackground(
+            backgroundAsset: _getActiveBackgroundAsset(),
+            fallbackAsset: AppAssets.arenaDiorama,
             child: Column(
               children: [
                 _buildTopResourceBar(state),
@@ -99,9 +119,9 @@ class _LobbyScreenState extends State<LobbyScreen> {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
             decoration: BoxDecoration(
-              color: const Color(0xFF0F1B16),
+              color: const Color(0xFF0F241C),
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.white12),
+              border: Border.all(color: Colors.white24),
             ),
             child: Row(
               children: [
@@ -132,19 +152,38 @@ class _LobbyScreenState extends State<LobbyScreen> {
           _resourceBadge(Icons.monetization_on_rounded, '${state.goldCoins}', AppColors.coinGold),
           _resourceBadge(Icons.diamond_rounded, '${state.diamonds}', AppColors.gemDiamond),
           _resourceBadge(Icons.bolt_rounded, '${state.upgradePoints} UP', AppColors.upgradePoint),
-          _resourceBadge(Icons.emoji_events_rounded, '${1200 + (state.careerWins * 35)}', AppColors.opticYellow),
+
+          // Tapping the Trophy Badge opens the Leaderboard screen directly!
+          GestureDetector(
+            onTap: () {
+              AppAudio.playFeatureSfx(AppAssets.sfxClick);
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const OnlineLeaderboardScreen()),
+              );
+            },
+            child: _resourceBadge(
+              Icons.emoji_events_rounded,
+              '${1200 + (state.careerWins * 35)}',
+              AppColors.opticYellow,
+              showGlow: true,
+            ),
+          ),
         ],
       ),
     );
   }
 
-  Widget _resourceBadge(IconData icon, String value, Color color) {
+  Widget _resourceBadge(IconData icon, String value, Color color, {bool showGlow = false}) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: const Color(0xFF0F1B16),
+        color: const Color(0xFF0F241C),
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: color.withValues(alpha: 0.3)),
+        border: Border.all(color: color.withValues(alpha: showGlow ? 0.7 : 0.35), width: showGlow ? 1.5 : 1.0),
+        boxShadow: showGlow
+            ? [BoxShadow(color: color.withValues(alpha: 0.25), blurRadius: 6)]
+            : null,
       ),
       child: Row(
         children: [
@@ -163,8 +202,8 @@ class _LobbyScreenState extends State<LobbyScreen> {
     return Container(
       height: 66,
       decoration: BoxDecoration(
-        color: const Color(0xFF091310),
-        border: Border(top: BorderSide(color: Colors.white.withValues(alpha: 0.12), width: 1.5)),
+        color: const Color(0xFF0C1F18),
+        border: Border(top: BorderSide(color: Colors.white.withValues(alpha: 0.15), width: 1.5)),
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceAround,
@@ -190,14 +229,14 @@ class _LobbyScreenState extends State<LobbyScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 22, color: isSelected ? AppColors.opticYellow : Colors.white38),
+            Icon(icon, size: 22, color: isSelected ? AppColors.opticYellow : Colors.white60),
             const SizedBox(height: 3),
             Text(
               label,
               style: TextStyle(
                 fontSize: 9.5,
                 fontWeight: isSelected ? FontWeight.w900 : FontWeight.w600,
-                color: isSelected ? AppColors.opticYellow : Colors.white38,
+                color: isSelected ? AppColors.opticYellow : Colors.white60,
                 letterSpacing: 0.6,
               ),
             ),

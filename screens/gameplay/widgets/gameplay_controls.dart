@@ -1,6 +1,5 @@
 // lib/screens/gameplay/widgets/gameplay_controls.dart
 
-import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../../../core/constants/app_colors.dart';
@@ -8,7 +7,7 @@ import '../../../../widgets/game_components.dart';
 import '../gameplay_screen.dart';
 
 // ============================================================================
-// JOYSTICK: OUTER CIRCLE WITH INSCRIBED DIAMOND (PER IMAGE SKETCH)
+// TRUE 360° OMNIDIRECTIONAL CIRCULAR JOYSTICK (NO DIAMONDS, NO DRIFT)
 // ============================================================================
 class VirtualJoystickWidget extends StatelessWidget {
   final Offset knobOffset;
@@ -33,47 +32,45 @@ class VirtualJoystickWidget extends StatelessWidget {
       onPanUpdate: (details) => onUpdate(details.delta),
       onPanEnd: (_) => onEnd(),
       child: Container(
-        width: radius * 2 + 4,
-        height: radius * 2 + 4,
+        width: radius * 2,
+        height: radius * 2,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
-          color: Colors.black.withValues(alpha: 0.45),
-          border: Border.all(color: Colors.white24, width: 2),
+          color: Colors.black.withValues(alpha: 0.50),
+          border: Border.all(color: Colors.white30, width: 2),
         ),
         child: Stack(
           alignment: Alignment.center,
           children: [
-            // Inscribed Diamond
-            Transform.rotate(
-              angle: math.pi / 4,
-              child: Container(
-                width: radius * 1.35,
-                height: radius * 1.35,
-                decoration: BoxDecoration(
-                  border: Border.all(
-                    color: AppColors.opticYellow.withValues(alpha: 0.40),
-                    width: 1.5,
-                  ),
+            // Inner 360-degree Guide Ring
+            Container(
+              width: radius * 1.25,
+              height: radius * 1.25,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: AppColors.opticYellow.withValues(alpha: 0.25),
+                  width: 1.5,
                 ),
               ),
             ),
-            // Analog Knob
+            // Smooth Analog Thumb Knob
             Transform.translate(
               offset: knobOffset,
               child: Container(
-                width: 40,
-                height: 40,
+                width: 42,
+                height: 42,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   color: AppColors.opticYellow,
                   boxShadow: [
                     BoxShadow(
-                      color: AppColors.opticYellow.withValues(alpha: 0.4),
+                      color: AppColors.opticYellow.withValues(alpha: 0.45),
                       blurRadius: 10,
                     ),
                   ],
                 ),
-                child: const Icon(Icons.control_camera_rounded, size: 18, color: Colors.black),
+                child: const Icon(Icons.circle, size: 14, color: Colors.black),
               ),
             ),
           ],
@@ -84,7 +81,7 @@ class VirtualJoystickWidget extends StatelessWidget {
 }
 
 // ============================================================================
-// 4-BUTTON RADIAL CLUSTER WITH CHARGING FEEDBACK (PER IMAGE SKETCH)
+// RADIAL 4-BUTTON CLUSTER WITH FIRM INPUT
 // ============================================================================
 class GameplayActionCluster extends StatelessWidget {
   final MatchPhase phase;
@@ -161,7 +158,6 @@ class GameplayActionCluster extends StatelessWidget {
         clipBehavior: Clip.none,
         alignment: Alignment.center,
         children: [
-          // Button 1: Primary Drive (LARGE HERO - Bottom Right Center)
           Positioned(
             right: 4,
             bottom: 4,
@@ -175,8 +171,6 @@ class GameplayActionCluster extends StatelessWidget {
               onTap: () => onSwing(ShotType.normal),
             ),
           ),
-
-          // Button 2: Smash / Overhead (MEDIUM - Top-Right of Button 1)
           Positioned(
             right: 18,
             top: 14,
@@ -190,8 +184,6 @@ class GameplayActionCluster extends StatelessWidget {
               onTap: () => onSwing(ShotType.smash),
             ),
           ),
-
-          // Button 3: Lob / Drop / Dink (MEDIUM-SMALL - Top-Left of Button 1)
           Positioned(
             left: 28,
             top: 28,
@@ -205,8 +197,6 @@ class GameplayActionCluster extends StatelessWidget {
               onTap: () => onSwing(ShotType.lob),
             ),
           ),
-
-          // Button 4: Blitz Super (SMALLEST - Bottom-Left of Button 1)
           Positioned(
             left: 10,
             bottom: 12,

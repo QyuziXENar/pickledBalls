@@ -85,13 +85,14 @@ class _PracticeCourtScreenState extends State<PracticeCourtScreen>
 
   // FX & Visuals
   final Map<String, ui.Image> _sprites = {};
-  final List<Offset> _ballTrail = [];
+  final List<TrailNode> _smoothTrail = [];
   final List<CourtParticle> _particles = [];
   final List<BounceShockwave> _shockwaves = [];
   double _cameraTrauma = 0.0;
   Offset _shakeOffset = Offset.zero;
 
-  // Free Play AI Engine
+  // Physics & AI Engine
+  final CourtPhysicsEngine _physics = CourtPhysicsEngine();
   final TacticalAiController _freePlayAi = TacticalAiController();
 
   // 9 Scripted Lessons
@@ -227,7 +228,7 @@ class _PracticeCourtScreenState extends State<PracticeCourtScreen>
       _boomerIsSwinging = false;
       _playerAction = SpriteAction.idle;
       _boomerAction = SpriteAction.idle;
-      _ballTrail.clear();
+      _smoothTrail.clear();
 
       switch (step) {
         case 1:
@@ -487,8 +488,8 @@ class _PracticeCourtScreenState extends State<PracticeCourtScreen>
         _ballZ += _ballVz * dt;
         _ballVz -= 3.8 * dt;
 
-        _ballTrail.add(Offset(_ballX, _ballY));
-        if (_ballTrail.length > 7) _ballTrail.removeAt(0);
+        _smoothTrail.add(TrailNode(x: _ballX, y: _ballY, z: _ballZ, time: _gameTime));
+        if (_smoothTrail.length > 7) _smoothTrail.removeAt(0);
 
         // Floor Bounce
         if (_ballZ <= 0.0) {
@@ -519,8 +520,8 @@ class _PracticeCourtScreenState extends State<PracticeCourtScreen>
         _ballZ += _ballVz * dt;
         _ballVz -= 4.2 * dt;
 
-        _ballTrail.add(Offset(_ballX, _ballY));
-        if (_ballTrail.length > 7) _ballTrail.removeAt(0);
+        _smoothTrail.add(TrailNode(x: _ballX, y: _ballY, z: _ballZ, time: _gameTime));
+        if (_smoothTrail.length > 7) _smoothTrail.removeAt(0);
 
         if (_ballZ <= 0.0) {
           _ballZ = 0.0;
@@ -575,9 +576,18 @@ class _PracticeCourtScreenState extends State<PracticeCourtScreen>
 
         if (_ballY < -0.30 || _ballY > 1.30) {
           _freePlayRallyStreak = 0;
-          _setupLessonStep(5); // Soft feed from Boomer
+          _setupLessonStep(5);
         }
       }
+
+      // Synchronize physics engine representation for trajectory projection
+      _physics.ballX = _ballX;
+      _physics.ballY = _ballY;
+      _physics.ballZ = _ballZ;
+      _physics.ballVx = _ballVx;
+      _physics.ballVy = _ballVy;
+      _physics.ballVz = _ballVz;
+      _physics.ballRotationAngle = _gameTime * 12.0;
     });
   }
 
@@ -836,7 +846,8 @@ class _PracticeCourtScreenState extends State<PracticeCourtScreen>
                         ballVy: _ballVy,
                         ballVz: _ballVz,
                         ballRotationAngle: _gameTime * 12.0,
-                        ballTrail: _ballTrail,
+                        smoothTrail: _smoothTrail,
+                        physics: _physics,
                         particles: _particles,
                         shockwaves: _shockwaves,
                         blitzActive: _currentStep == 9,
@@ -1020,7 +1031,6 @@ class _PracticeCourtScreenState extends State<PracticeCourtScreen>
 
                       Offset arrowPos = Offset.zero;
 
-                      // Exact button pixel anchors
                       if (target == 'waypoint') {
                         final wp = _project3D(_step1Waypoint.dx, _step1Waypoint.dy, 0.0, screenSize);
                         arrowPos = Offset(wp.dx, wp.dy - 34 - bob);

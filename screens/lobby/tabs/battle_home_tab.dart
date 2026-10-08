@@ -8,8 +8,8 @@ import '../../../widgets/asset_helpers.dart';
 import '../../../widgets/gacha_unboxing_dialog.dart';
 import '../../../widgets/game_components.dart';
 import '../../gameplay/gameplay_screen.dart';
+import '../../multiplayer/multiplayer_select_screen.dart';
 import '../../multiplayer/vs_ai_setup_screen.dart';
-import '../../multiplayer/vs_player_lobby_screen.dart';
 import '../../practice/practice_court_screen.dart';
 
 class BattleHomeTab extends StatelessWidget {
@@ -38,18 +38,18 @@ class BattleHomeTab extends StatelessWidget {
           constraints: const BoxConstraints(maxWidth: 420),
           child: Column(
             children: [
-              // Pro Tour Arena Stage Header
+              // Clean Pro Tour Arena Stage Header Card
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
                   gradient: const LinearGradient(
-                    colors: [Color(0xFF14241D), Color(0xFF0C1613)],
+                    colors: [Color(0xFF143026), Color(0xFF0F241C)],
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
                   ),
                   borderRadius: BorderRadius.circular(18),
-                  border: Border.all(color: AppColors.opticYellow.withValues(alpha: 0.3)),
+                  border: Border.all(color: AppColors.opticYellow.withValues(alpha: 0.35)),
                   boxShadow: const [BoxShadow(color: Colors.black45, blurRadius: 10)],
                 ),
                 child: Column(
@@ -95,7 +95,7 @@ class BattleHomeTab extends StatelessWidget {
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                           decoration: BoxDecoration(
-                            color: Colors.black45,
+                            color: Colors.black54,
                             borderRadius: BorderRadius.circular(8),
                             border: Border.all(color: Colors.white12),
                           ),
@@ -131,12 +131,12 @@ class BattleHomeTab extends StatelessWidget {
                 width: double.infinity,
                 padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF0F1824),
+                  color: const Color(0xFF102636),
                   borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: athlete.accentColor.withValues(alpha: 0.5), width: 1.6),
+                  border: Border.all(color: athlete.accentColor.withValues(alpha: 0.55), width: 1.6),
                   boxShadow: [
                     BoxShadow(
-                      color: athlete.bodyColor.withValues(alpha: 0.2),
+                      color: athlete.bodyColor.withValues(alpha: 0.25),
                       blurRadius: 14,
                       offset: const Offset(0, 4),
                     ),
@@ -297,7 +297,7 @@ class BattleHomeTab extends StatelessWidget {
 
               const SizedBox(height: 12),
 
-              // 4 Restored Chest Slots
+              // 4 Chest Slots
               Row(
                 children: [
                   _buildChestSlot(
@@ -415,13 +415,13 @@ class BattleHomeTab extends StatelessWidget {
 
               const SizedBox(height: 12),
 
-              // VS. AI and VS. PLAYER Buttons
+              // VS. AI and MULTIPLAYER (1v1 Modes) Row
               Row(
                 children: [
                   Expanded(
                     child: BouncyButton(
                       onTap: () {
-                        AppAudio.play(context, AppAssets.sfxClick, 'Opening AI Match Setup');
+                        AppAudio.playFeatureSfx(AppAssets.sfxClick);
                         Navigator.push(
                           context,
                           MaterialPageRoute(builder: (_) => const VsAiSetupScreen()),
@@ -458,34 +458,67 @@ class BattleHomeTab extends StatelessWidget {
                   Expanded(
                     child: BouncyButton(
                       onTap: () {
-                        AppAudio.play(context, AppAssets.sfxClick, 'Opening 1v1 Local Duel Lobby');
+                        AppAudio.playFeatureSfx(AppAssets.sfxClick);
                         Navigator.push(
                           context,
-                          MaterialPageRoute(builder: (_) => const VsPlayerLobbyScreen()),
+                          MaterialPageRoute(builder: (_) => const MultiplayerSelectScreen()),
                         );
                       },
-                      child: Container(
-                        height: 54,
-                        decoration: BoxDecoration(
-                          gradient: const LinearGradient(
-                            colors: [Color(0xFF13283E), Color(0xFF0B1928)],
-                            begin: Alignment.topCenter,
-                            end: Alignment.bottomCenter,
+                      child: Stack(
+                        clipBehavior: Clip.none,
+                        children: [
+                          Container(
+                            height: 54,
+                            decoration: BoxDecoration(
+                              gradient: const LinearGradient(
+                                colors: [Color(0xFF13283E), Color(0xFF0B1928)],
+                                begin: Alignment.topCenter,
+                                end: Alignment.bottomCenter,
+                              ),
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(
+                                color: AppColors.cyberCyan.withValues(alpha: 0.8),
+                                width: 1.8,
+                              ),
+                            ),
+                            child: const Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(Icons.groups_rounded, color: AppColors.cyberCyan, size: 18),
+                                SizedBox(width: 6),
+                                Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'MULTIPLAYER',
+                                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900, color: Colors.white),
+                                    ),
+                                    Text(
+                                      'LAN & ONLINE',
+                                      style: TextStyle(fontSize: 7.5, fontWeight: FontWeight.bold, color: AppColors.cyberCyan),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
                           ),
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(
-                            color: AppColors.cyberCyan.withValues(alpha: 0.8),
-                            width: 1.8,
+                          Positioned(
+                            top: -6,
+                            right: 8,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                gradient: AppColors.lanHostGradient,
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: const Text(
+                                '1v1 MODES',
+                                style: TextStyle(fontSize: 7.5, fontWeight: FontWeight.w900, color: Colors.black),
+                              ),
+                            ),
                           ),
-                        ),
-                        child: const Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(Icons.people_alt_rounded, color: AppColors.cyberCyan, size: 18),
-                            SizedBox(width: 6),
-                            Text('1v1 LAN', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900, color: Colors.white)),
-                          ],
-                        ),
+                        ],
                       ),
                     ),
                   ),
@@ -494,10 +527,10 @@ class BattleHomeTab extends StatelessWidget {
 
               const SizedBox(height: 10),
 
-              // Sprint E: Scripted Practice & Tutorial Launch Card
+              // Scripted Practice & Tutorial Launch Card
               BouncyButton(
                 onTap: () {
-                  AppAudio.play(context, AppAssets.sfxClick, 'Entering Practice');
+                  AppAudio.playFeatureSfx(AppAssets.sfxClick);
                   Navigator.push(
                     context,
                     MaterialPageRoute(builder: (_) => const PracticeCourtScreen()),
@@ -507,7 +540,7 @@ class BattleHomeTab extends StatelessWidget {
                   width: double.infinity,
                   padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF1A1A24),
+                    color: const Color(0xFF16252C),
                     borderRadius: BorderRadius.circular(16),
                     border: Border.all(color: Colors.white24),
                   ),
@@ -560,7 +593,7 @@ class BattleHomeTab extends StatelessWidget {
           decoration: BoxDecoration(
             color: isReady
                 ? accent.withValues(alpha: 0.18)
-                : const Color(0xFF0C141E),
+                : const Color(0xFF0F241C),
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
               color: isReady

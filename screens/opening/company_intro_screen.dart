@@ -1,4 +1,4 @@
-// lib/screens/company_intro_screen.dart
+// lib/screens/opening/company_intro_screen.dart
 
 import 'dart:async';
 import 'package:flutter/material.dart';
@@ -6,10 +6,6 @@ import '../../core/constants/app_assets.dart';
 import '../../core/constants/app_colors.dart';
 import '../../widgets/asset_helpers.dart';
 import 'welcome_screen.dart';
-
-// ============================================================================
-// XCCR GAME STUDIOS — TWO-STAGE CINEMATIC INTRO SEQUENCE
-// ============================================================================
 
 class CompanyIntroScreen extends StatefulWidget {
   const CompanyIntroScreen({super.key});
@@ -23,7 +19,6 @@ class _CompanyIntroScreenState extends State<CompanyIntroScreen>
   late AnimationController _fadeController;
   late Animation<double> _fadeAnimation;
 
-  // 0 = XCCR Game Studios, 1 = Flutter Engine
   int _currentStage = 0;
   bool _hasNavigated = false;
 
@@ -41,16 +36,14 @@ class _CompanyIntroScreenState extends State<CompanyIntroScreen>
       curve: Curves.easeInOut,
     );
 
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      AppAudio.play(context, AppAssets.musicXccrIntro, 'XCCR Intro Resonance');
-    });
+    // Audio triggers immediately
+    AppAudio.playMusic(AppAssets.companyIntro);
 
     _runCinematicSequence();
   }
 
   Future<void> _runCinematicSequence() async {
-    // Stage 1: Ambient silence to XCCR Logo
-    await Future.delayed(const Duration(milliseconds: 1200));
+    await Future.delayed(const Duration(milliseconds: 1000));
     if (!mounted || _hasNavigated) return;
 
     _fadeController.duration = const Duration(milliseconds: 1200);
@@ -64,7 +57,6 @@ class _CompanyIntroScreenState extends State<CompanyIntroScreen>
     await _fadeController.reverse();
     if (!mounted || _hasNavigated) return;
 
-    // Stage 2: Flutter 2.5D Custom Engine
     setState(() => _currentStage = 1);
 
     _fadeController.duration = const Duration(milliseconds: 1200);
@@ -105,7 +97,7 @@ class _CompanyIntroScreenState extends State<CompanyIntroScreen>
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTap: _navigateToWelcome, // Tap anywhere to skip
+      onTap: _navigateToWelcome,
       behavior: HitTestBehavior.opaque,
       child: Scaffold(
         backgroundColor: AppColors.darkBg,
@@ -116,7 +108,7 @@ class _CompanyIntroScreenState extends State<CompanyIntroScreen>
               child: FadeTransition(
                 opacity: _fadeAnimation,
                 child: _currentStage == 0
-                    ? _buildXccrStage(context)
+                    ? _buildCompanyStage(context)
                     : _buildFlutterEngineStage(context),
               ),
             ),
@@ -139,14 +131,11 @@ class _CompanyIntroScreenState extends State<CompanyIntroScreen>
     );
   }
 
-  // ==========================================================================
-  // STAGE 1: XCCR GAME STUDIOS LOGO & BRANDING
-  // ==========================================================================
-  Widget _buildXccrStage(BuildContext context) {
+  Widget _buildCompanyStage(BuildContext context) {
     final maxDimension = (MediaQuery.sizeOf(context).width * 0.78).clamp(240.0, 400.0);
 
     return AppAssetImage(
-      assetPath: AppAssets.logoXccr,
+      assetPath: AppAssets.companyLogo,
       width: maxDimension,
       height: maxDimension,
       fallback: Container(
@@ -169,13 +158,13 @@ class _CompanyIntroScreenState extends State<CompanyIntroScreen>
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
-                'XCCR',
+                'PADDLE BLITZ',
                 style: TextStyle(
                   fontFamily: 'monospace',
                   fontWeight: FontWeight.w900,
                   color: Colors.white,
-                  fontSize: 26,
-                  letterSpacing: 3.0,
+                  fontSize: 18,
+                  letterSpacing: 2.0,
                 ),
               ),
               Text(
@@ -194,9 +183,6 @@ class _CompanyIntroScreenState extends State<CompanyIntroScreen>
     );
   }
 
-  // ==========================================================================
-  // STAGE 2: CUSTOM 2.5D FLUTTER ENGINE
-  // ==========================================================================
   Widget _buildFlutterEngineStage(BuildContext context) {
     return Column(
       mainAxisSize: MainAxisSize.min,

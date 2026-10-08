@@ -55,6 +55,14 @@ class TrailNode {
   });
 }
 
+class Vector3D {
+  final double x;
+  final double y;
+  final double z;
+
+  const Vector3D(this.x, this.y, this.z);
+}
+
 class CourtPhysicsEngine {
   double ballX = 0.0;
   double ballY = 0.05;
@@ -77,7 +85,7 @@ class CourtPhysicsEngine {
   final List<CourtParticle> particles = [];
   final List<BounceShockwave> shockwaves = [];
 
-  static const double gravity = 4.15; // Tuned for authentic parabolic hang time
+  static const double gravity = 4.15;
 
   void resetBall({
     required bool playerServing,
@@ -95,7 +103,7 @@ class CourtPhysicsEngine {
     isServeBall = true;
     serveFromRight = playerServing ? (playerX >= 0) : (aiX >= 0);
 
-    ballX = playerServing ? (playerX + 0.14) : aiX;
+    ballX = playerServing ? (playerX + 0.12) : aiX;
     ballY = playerServing ? 0.05 : aiY;
     ballZ = 0.65;
     ballVx = 0;
@@ -160,9 +168,6 @@ class CourtPhysicsEngine {
     }
   }
 
-  // ==========================================================================
-  // JITTER-FREE BALL FLIGHT SIMULATION WITH NET CLEARANCE
-  // ==========================================================================
   void updateBallFlight({
     required double dt,
     required double currentTime,
@@ -171,13 +176,11 @@ class CourtPhysicsEngine {
     required VoidCallback onNetFault,
     required VoidCallback onOutOfBounds,
   }) {
-    // 1. Aerodynamic wiffle drag (smooth deceleration without hitching)
     final speed = math.sqrt(ballVx * ballVx + ballVy * ballVy);
     final drag = 1.0 - (0.13 * dt * (1.0 + speed * 0.28));
     ballVx *= drag;
     ballVy *= drag;
 
-    // 2. Lateral spin drift and vertical topspin/backspin loft
     ballVx += ballCurve * dt * 2.0;
     ballVz -= (gravity + (ballSpinVertical * 1.6)) * dt;
 
@@ -189,7 +192,6 @@ class CourtPhysicsEngine {
     ballY += ballVy * dt;
     ballZ += ballVz * dt;
 
-    // Jitter-free trail recording: distance-gated sampling
     if (smoothTrail.isEmpty) {
       smoothTrail.add(TrailNode(x: ballX, y: ballY, z: ballZ, time: currentTime));
     } else {
@@ -198,21 +200,19 @@ class CourtPhysicsEngine {
           (ballY - last.y) * (ballY - last.y) +
           (ballZ - last.z) * (ballZ - last.z);
 
-      if (distSq > 0.0016) { // Adds node only after 4cm of smooth travel
+      if (distSq > 0.0016) {
         smoothTrail.add(TrailNode(x: ballX, y: ballY, z: ballZ, time: currentTime));
       }
     }
 
-    // Age-based trail culling (smooth 0.28s tail lifetime)
     smoothTrail.removeWhere((node) => (currentTime - node.time) > 0.28);
     if (smoothTrail.length > 18) smoothTrail.removeAt(0);
 
-    // 3. Floor Bounce & Increased Restitution
+    // Floor Bounce
     if (ballZ <= 0.0) {
       ballZ = 0.0;
       final currentHalf = (ballY < 0.50) ? 1 : 2;
 
-      // Out of bounds check
       final isOut = ballX.abs() > 1.0 || ballY < -0.05 || ballY > 1.05;
 
       if (isOut) {
@@ -223,7 +223,7 @@ class CourtPhysicsEngine {
         return;
       }
 
-      // First serve bounce check in NVZ kitchen
+      // Check NVZ Kitchen clearance on serve
       if (isServeBall && bouncesThisRally == 0) {
         isServeBall = false;
         if (ballY >= 0.34 && ballY <= 0.66) {
@@ -233,7 +233,7 @@ class CourtPhysicsEngine {
         }
       }
 
-      // Double bounce on same half
+      // Double bounce on same court half
       if (lastBounceHalf == currentHalf) {
         spawnHitSparks(ballX, ballY, 0.0, const Color(0xFFFF5252));
         spawnBounceShockwave(ballX, ballY, const Color(0xFFFF5252));
@@ -244,21 +244,19 @@ class CourtPhysicsEngine {
       lastBounceHalf = currentHalf;
       bouncesThisRally++;
 
-      // Energetic floor bounce restitution (No dying balls)
       if (ballVz.abs() > 0.35) {
         onBallBounce();
         spawnHitSparks(ballX, ballY, 0.0, const Color(0xFFD6F800));
         spawnBounceShockwave(ballX, ballY, const Color(0xFFD6F800));
       }
 
-      // Restitution: 78% retention + minimum playable apex
       ballVz = -ballVz * 0.78;
       if (ballVz.abs() < 1.1 && ballVz.abs() > 0.2) {
-        ballVz = 1.1; // Ensures ball rises back to waist height
+        ballVz = 1.1;
       }
     }
 
-    // 4. Net Collision (Y = 0.50, Height Z = 0.44m)
+    // Net Collision (Y = 0.50, Height Z = 0.44m)
     if ((ballY - 0.50).abs() < 0.035 && ballZ < 0.44) {
       spawnHitSparks(ballX, 0.50, ballZ, Colors.white);
       onNetFault();
@@ -266,7 +264,7 @@ class CourtPhysicsEngine {
       return;
     }
 
-    // 5. Baseline Out Checks
+    // Deep Baseline Out Checks
     if (ballY > 1.25) {
       onPointEnded(lastBounceHalf == 2, lastBounceHalf == 2 ? 'WINNER' : 'OUT OF BOUNDS');
     } else if (ballY < -0.30) {
@@ -274,14 +272,10 @@ class CourtPhysicsEngine {
     }
   }
 
-  // ==========================================================================
-  // ANALYTIC TRAJECTORY PREDICTOR (HOLOGRAPHIC PIPREVIEW)
-  // ==========================================================================
   List<Vector3D> computePredictedTrajectory({int samples = 20}) {
     final List<Vector3D> points = [];
     if (ballVy == 0) return points;
 
-    // Simulate forward parabola up to next floor contact (Z = 0)
     double t = 0.0;
     const double dtStep = 0.045;
 
@@ -302,7 +296,6 @@ class CourtPhysicsEngine {
       simZ += simVz * dtStep;
       t += dtStep;
 
-      // Stop once trajectory reaches floor or out of playable bounds
       if (simZ <= 0.0 || simY < -0.35 || simY > 1.35) {
         points.add(Vector3D(simX, simY, 0.0));
         break;
@@ -311,12 +304,4 @@ class CourtPhysicsEngine {
 
     return points;
   }
-}
-
-class Vector3D {
-  final double x;
-  final double y;
-  final double z;
-
-  const Vector3D(this.x, this.y, this.z);
 }
