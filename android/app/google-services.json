@@ -1,0 +1,30 @@
+{
+  "project_info": {
+    "project_number": "537838096476",
+    "firebase_url": "https://paddle-blitz-default-rtdb.asia-southeast1.firebasedatabase.app",
+    "project_id": "paddle-blitz",
+    "storage_bucket": "paddle-blitz.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:537838096476:android:2e0da2ec892b620b631699",
+        "android_client_info": {
+          "package_name": "com.example.my_first_flutter_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCzEZtLy4JSNbMkVYk9JRDY-93S1Jsdql0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

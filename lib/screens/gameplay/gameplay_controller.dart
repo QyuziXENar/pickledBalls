@@ -17,6 +17,7 @@ import 'physics/tactical_ai_controller.dart';
 class GameplayController extends ChangeNotifier {
   final CourtPhysicsEngine physics;
   final TacticalAiController ai;
+  final MatchMode matchMode;
 
   MatchPhase phase = MatchPhase.cinematicSplash;
   int countdownNumber = 3;
@@ -65,7 +66,11 @@ class GameplayController extends ChangeNotifier {
 
   Timer? _aiServeTimer;
 
-  GameplayController({required this.physics, required this.ai});
+  GameplayController({
+    required this.physics,
+    required this.ai,
+    this.matchMode = MatchMode.vsAi,
+  });
 
   void startMatchIntro() {
     phase = MatchPhase.cinematicSplash;
@@ -129,8 +134,8 @@ class GameplayController extends ChangeNotifier {
       aiY: ai.y,
     );
 
-    // AI ALWAYS SCHEDULES ITS SERVE IMMEDIATELY (NO DEADLOCKS)
-    if (!playerServing) {
+    // AI only auto-serves in Single Player mode
+    if (!playerServing && matchMode == MatchMode.vsAi) {
       scheduleAiServe();
     }
 
@@ -145,7 +150,7 @@ class GameplayController extends ChangeNotifier {
         : (diff == AIDifficulty.pro ? 850 : 600);
 
     _aiServeTimer = Timer(Duration(milliseconds: delayMs), () {
-      if (phase == MatchPhase.serveTossWait && !playerServing) {
+      if (phase == MatchPhase.serveTossWait && !playerServing && matchMode == MatchMode.vsAi) {
         executeAiServe();
       }
     });
@@ -178,7 +183,6 @@ class GameplayController extends ChangeNotifier {
   }) {
     if (phase != MatchPhase.serveBallInAir || !playerServing) return;
 
-    // Contact allowed only when ball descends below waist level
     if (physics.ballZ > 0.95) {
       setFeedback('TOO EARLY! (Above Waist)', AppColors.electricCoral);
       HapticFeedback.selectionClick();
@@ -207,7 +211,6 @@ class GameplayController extends ChangeNotifier {
       targetX = (joystickX * 0.65).clamp(-0.75, 0.75);
     }
 
-    // High-momentum serve ballistics clearing the kitchen into the deep court
     if (shotType == ShotType.drive) {
       physics.ballVy = (isSweetSpot ? 0.90 : 0.82) * power;
       physics.ballVz = 1.95;
@@ -226,7 +229,9 @@ class GameplayController extends ChangeNotifier {
 
     currentRally = 1;
     physics.spawnHitSparks(playerX + 0.10, 0.04, physics.ballZ, AppColors.opticYellow);
-    ai.onPlayerHitBall(difficulty: state.difficulty, ballVx: physics.ballVx);
+    if (matchMode == MatchMode.vsAi) {
+      ai.onPlayerHitBall(difficulty: state.difficulty, ballVx: physics.ballVx);
+    }
     HapticFeedback.mediumImpact();
     notifyListeners();
   }
@@ -281,13 +286,10 @@ class GameplayController extends ChangeNotifier {
       isUnderPressure: blitzActive,
       onApplyShot: (vy, vz, vx, curve, spinZ, shot) {
         final double aiPower = aiChar.swingPower * state.gamePace;
-
-        // Controlled, playable velocity: lands softly at Y ≈ 0.20 - 0.28
         final double rawVy = (shot == ShotType.smash
             ? 0.85
             : (shot == ShotType.lob ? 0.60 : 0.70)) * aiPower;
 
-        // Guaranteed net clearance (18cm over tape)
         final double distToNet = (ai.y - 0.50).clamp(0.18, 0.85);
         final double timeToNet = distToNet / (rawVy.abs() + 0.001);
 
@@ -398,13 +400,14 @@ class GameplayController extends ChangeNotifier {
         coinsEarned: playerWonMatch ? 200 : 75,
       );
 
-      MockOnlineRepository.instance.submitMatchResult(matchSummaryStats!);
-
-      GameState.instance.addMatchExperience(
-        wonMatch: playerWonMatch,
-        rallyHits: longestRally,
-        smashes: totalSmashes,
-      );
+      if (matchMode == MatchMode.vsAi) {
+        MockOnlineRepository.instance.submitMatchResult(matchSummaryStats!);
+        GameState.instance.addMatchExperience(
+          wonMatch: playerWonMatch,
+          rallyHits: longestRally,
+          smashes: totalSmashes,
+        );
+      }
 
       phase = MatchPhase.gameOver;
       AppAudio.playFeatureSfx(playerWonMatch ? AppAssets.sfxMatchWinner : AppAssets.sfxMatchLose);

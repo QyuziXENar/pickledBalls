@@ -1,4 +1,4 @@
-// lib/screens/multiplayer/vs_player_room_screen.dart
+// lib/screens/multiplayer/vs_online_room_screen.dart
 
 import 'dart:async';
 import 'package:flutter/material.dart';
@@ -6,25 +6,25 @@ import 'package:flutter/services.dart';
 import '../../core/constants/app_assets.dart';
 import '../../core/constants/app_colors.dart';
 import '../../models/game_state.dart';
-import '../../services/lan_multiplayer_manager.dart';
+import '../../services/online_multiplayer_manager.dart';
 import '../../widgets/ambient_background.dart';
 import '../../widgets/asset_helpers.dart';
 import '../../widgets/game_components.dart';
 import '../gameplay/gameplay_screen.dart';
 import 'widgets/quick_chat_overlay.dart';
 
-class VsPlayerRoomScreen extends StatefulWidget {
+class VsOnlineRoomScreen extends StatefulWidget {
   final bool isHost;
 
-  const VsPlayerRoomScreen({super.key, required this.isHost});
+  const VsOnlineRoomScreen({super.key, required this.isHost});
 
   @override
-  State<VsPlayerRoomScreen> createState() => _VsPlayerRoomScreenState();
+  State<VsOnlineRoomScreen> createState() => _VsOnlineRoomScreenState();
 }
 
-class _VsPlayerRoomScreenState extends State<VsPlayerRoomScreen>
+class _VsOnlineRoomScreenState extends State<VsOnlineRoomScreen>
     with TickerProviderStateMixin {
-  final LanMultiplayerManager _lan = LanMultiplayerManager.instance;
+  final OnlineMultiplayerManager _online = OnlineMultiplayerManager.instance;
   StreamSubscription? _packetSub;
 
   String _myUsername = '';
@@ -76,13 +76,19 @@ class _VsPlayerRoomScreenState extends State<VsPlayerRoomScreen>
 
     _localReady = widget.isHost;
 
+    // Guest initializes directly from persistent room settings
+    if (!widget.isHost) {
+      _selectedVenueIdx = _online.roomVenueIdx;
+      _targetScore = _online.roomTargetScore;
+    }
+
     _pulseController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1400),
     )..repeat(reverse: true);
 
-    _lan.addListener(_onLanStateChanged);
-    _packetSub = _lan.packetStream.listen(_onPacketReceived);
+    _online.addListener(_onOnlineStateChanged);
+    _packetSub = _online.packetStream.listen(_onPacketReceived);
 
     if (widget.isHost) {
       _broadcastHostProfile();
@@ -91,9 +97,25 @@ class _VsPlayerRoomScreenState extends State<VsPlayerRoomScreen>
     }
   }
 
-  void _onLanStateChanged() {
+  void _onOnlineStateChanged() {
     if (!mounted) return;
-    setState(() {});
+
+    // Guest updates directly whenever the room settings document updates
+    if (!widget.isHost) {
+      setState(() {
+        _selectedVenueIdx = _online.roomVenueIdx;
+        _targetScore = _online.roomTargetScore;
+      });
+    }
+
+    if (_online.isConnected) {
+      setState(() {
+        _opponentUsername = _online.opponentName;
+        _opponentAthleteId = _online.opponentAthleteId;
+        _opponentPaddleId = _online.opponentPaddleId;
+        _remoteReady = _online.isOpponentReady;
+      });
+    }
   }
 
   void _onPacketReceived(Map<String, dynamic> packet) {
@@ -101,26 +123,7 @@ class _VsPlayerRoomScreenState extends State<VsPlayerRoomScreen>
 
     final type = packet['type'];
 
-    if (type == 'challenger_profile') {
-      setState(() {
-        _opponentUsername = packet['username'] ?? 'Challenger';
-        _opponentAthleteId = packet['athleteId'] ?? 'jax';
-        _opponentPaddleId = packet['paddleId'] ?? 'volt_strike';
-      });
-      if (widget.isHost) _broadcastHostProfile();
-    } else if (type == 'host_profile') {
-      setState(() {
-        _opponentUsername = packet['username'] ?? 'Host';
-        _opponentAthleteId = packet['athleteId'] ?? 'aria';
-        _opponentPaddleId = packet['paddleId'] ?? 'volt_strike';
-      });
-    } else if (type == 'room_settings' && !widget.isHost) {
-      setState(() {
-        _selectedVenueIdx = packet['venueIdx'] ?? 0;
-        _targetScore = packet['targetScore'] ?? 11;
-      });
-      AppAudio.playFeatureSfx(AppAssets.sfxClick);
-    } else if (type == 'challenger_ready') {
+    if (type == 'challenger_ready') {
       setState(() {
         if (widget.isHost) {
           _remoteReady = packet['isReady'] == true;
@@ -138,33 +141,22 @@ class _VsPlayerRoomScreenState extends State<VsPlayerRoomScreen>
 
   void _broadcastHostProfile() {
     final state = GameState.instance;
-    _lan.sendPacket({
+    _online.sendPacket({
       'type': 'host_profile',
       'username': _myUsername,
       'athleteId': state.selectedCharacter.id,
       'paddleId': state.selectedPaddle.id,
     });
-    _broadcastSettings();
   }
 
   void _broadcastChallengerProfile() {
     final state = GameState.instance;
-    _lan.sendPacket({
+    _online.sendPacket({
       'type': 'challenger_profile',
       'username': _myUsername,
       'athleteId': state.selectedCharacter.id,
       'paddleId': state.selectedPaddle.id,
     });
-  }
-
-  void _broadcastSettings() {
-    if (widget.isHost && _lan.isConnected) {
-      _lan.sendPacket({
-        'type': 'room_settings',
-        'venueIdx': _selectedVenueIdx,
-        'targetScore': _targetScore,
-      });
-    }
   }
 
   void _displayChatBubble({required String role, required String text}) {
@@ -187,7 +179,7 @@ class _VsPlayerRoomScreenState extends State<VsPlayerRoomScreen>
 
   void _sendQuickChat(String text) {
     final myRole = widget.isHost ? 'host' : 'guest';
-    _lan.sendPacket({
+    _online.sendPacket({
       'type': 'chat',
       'role': myRole,
       'text': text,
@@ -207,7 +199,8 @@ class _VsPlayerRoomScreenState extends State<VsPlayerRoomScreen>
 
   void _toggleChallengerReady() {
     setState(() => _localReady = !_localReady);
-    _lan.sendPacket({
+    _online.toggleReadyState(_localReady);
+    _online.sendPacket({
       'type': 'challenger_ready',
       'isReady': _localReady,
     });
@@ -240,7 +233,10 @@ class _VsPlayerRoomScreenState extends State<VsPlayerRoomScreen>
 
   void _launchMatch() {
     final state = GameState.instance;
-    state.setCourtVenue(_venues[_selectedVenueIdx]['name']);
+
+    // Both devices load the venue verified from the authoritative settings
+    final String chosenVenue = _venues[_selectedVenueIdx]['name'];
+    state.setCourtVenue(chosenVenue);
     state.setTargetScore(_targetScore);
     state.startExhibitionMatch();
 
@@ -248,7 +244,7 @@ class _VsPlayerRoomScreenState extends State<VsPlayerRoomScreen>
       context,
       MaterialPageRoute(
         builder: (_) => CourtGameplayScreen(
-          matchMode: MatchMode.lanPvp,
+          matchMode: MatchMode.onlinePvp,
           isHost: widget.isHost,
         ),
       ),
@@ -262,7 +258,7 @@ class _VsPlayerRoomScreenState extends State<VsPlayerRoomScreen>
     _challengerChatTimer?.cancel();
     _pulseController.dispose();
     _packetSub?.cancel();
-    _lan.removeListener(_onLanStateChanged);
+    _online.removeListener(_onOnlineStateChanged);
     super.dispose();
   }
 
@@ -288,7 +284,7 @@ class _VsPlayerRoomScreenState extends State<VsPlayerRoomScreen>
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              _buildLanNetworkHeader(),
+                              _buildRoomCodeHeader(),
                               const SizedBox(height: 12),
                               _buildDualPlayerPods(state),
                               const SizedBox(height: 14),
@@ -319,7 +315,7 @@ class _VsPlayerRoomScreenState extends State<VsPlayerRoomScreen>
         children: [
           BouncyButton(
             onTap: () {
-              _lan.disconnect();
+              _online.disconnect();
               Navigator.pop(context);
             },
             child: Container(
@@ -340,7 +336,7 @@ class _VsPlayerRoomScreenState extends State<VsPlayerRoomScreen>
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                widget.isHost ? 'LOCAL LAN (HOST)' : 'LOCAL LAN (GUEST)',
+                widget.isHost ? 'ONLINE ARENA (HOST)' : 'ONLINE ARENA (GUEST)',
                 style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w900, color: Colors.white),
               ),
               Row(
@@ -348,7 +344,7 @@ class _VsPlayerRoomScreenState extends State<VsPlayerRoomScreen>
                   const CircleAvatar(radius: 3, backgroundColor: AppColors.mintAccent),
                   const SizedBox(width: 5),
                   Text(
-                    widget.isHost ? 'HOST SERVER READY' : 'CONNECTED TO HOST',
+                    '${_online.estimatedPingMs}ms • ASIA-SOUTHEAST',
                     style: const TextStyle(fontSize: 8.5, fontWeight: FontWeight.bold, color: AppColors.cyberCyan),
                   ),
                 ],
@@ -379,17 +375,17 @@ class _VsPlayerRoomScreenState extends State<VsPlayerRoomScreen>
     );
   }
 
-  Widget _buildLanNetworkHeader() {
+  Widget _buildRoomCodeHeader() {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       decoration: BoxDecoration(
         color: const Color(0xFF0F1B26),
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: AppColors.cyberCyan.withValues(alpha: 0.5), width: 1.5),
+        border: Border.all(color: AppColors.opticYellow.withValues(alpha: 0.5), width: 1.5),
         boxShadow: [
           BoxShadow(
-            color: AppColors.cyberCyan.withValues(alpha: 0.15),
+            color: AppColors.opticYellow.withValues(alpha: 0.15),
             blurRadius: 14,
             offset: const Offset(0, 3),
           ),
@@ -401,30 +397,30 @@ class _VsPlayerRoomScreenState extends State<VsPlayerRoomScreen>
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                widget.isHost ? 'HOST DEVICE IP (PORT 8080)' : 'CONNECTED SERVER IP',
-                style: const TextStyle(fontSize: 8.5, fontWeight: FontWeight.w900, color: AppColors.textMuted, letterSpacing: 1.0),
+              const Text(
+                'PRIVATE ROOM CODE',
+                style: TextStyle(fontSize: 8.5, fontWeight: FontWeight.w900, color: AppColors.textMuted, letterSpacing: 1.0),
               ),
               const SizedBox(height: 2),
               Text(
-                _lan.localIp.isEmpty ? 'Searching...' : _lan.localIp,
+                _online.activeRoomCode.isEmpty ? '....' : _online.activeRoomCode,
                 style: const TextStyle(
                   fontFamily: 'monospace',
-                  fontSize: 18,
+                  fontSize: 24,
                   fontWeight: FontWeight.w900,
-                  color: AppColors.cyberCyan,
-                  letterSpacing: 1.5,
+                  color: AppColors.opticYellow,
+                  letterSpacing: 4.0,
                 ),
               ),
             ],
           ),
           BouncyButton(
             onTap: () {
-              if (_lan.localIp.isNotEmpty && _lan.localIp != 'Unavailable') {
-                Clipboard.setData(ClipboardData(text: _lan.localIp));
+              if (_online.activeRoomCode.isNotEmpty) {
+                Clipboard.setData(ClipboardData(text: _online.activeRoomCode));
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(
-                    content: Text('📋 Host IP copied to clipboard!'),
+                    content: Text('📋 Room code copied to clipboard!'),
                     duration: Duration(seconds: 1),
                   ),
                 );
@@ -479,7 +475,7 @@ class _VsPlayerRoomScreenState extends State<VsPlayerRoomScreen>
             paddle: widget.isHost ? myPaddle : oppPaddle,
             isReady: hostIsReady,
             chatBubbleText: _hostChatText,
-            isWaiting: !widget.isHost && !_lan.isConnected,
+            isWaiting: !widget.isHost && !_online.isConnected,
           ),
         ),
         const SizedBox(width: 10),
@@ -493,7 +489,7 @@ class _VsPlayerRoomScreenState extends State<VsPlayerRoomScreen>
             paddle: !widget.isHost ? myPaddle : oppPaddle,
             isReady: challengerIsReady,
             chatBubbleText: _challengerChatText,
-            isWaiting: widget.isHost && !_lan.isConnected,
+            isWaiting: widget.isHost && !_online.isConnected,
           ),
         ),
       ],
@@ -575,13 +571,13 @@ class _VsPlayerRoomScreenState extends State<VsPlayerRoomScreen>
                         color: Colors.white.withValues(alpha: 0.05 + (_pulseController.value * 0.05)),
                         border: Border.all(color: Colors.white24),
                       ),
-                      child: const Icon(Icons.wifi_tethering_rounded, color: Colors.white38, size: 20),
+                      child: const Icon(Icons.person_search_rounded, color: Colors.white38, size: 20),
                     );
                   },
                 ),
                 const SizedBox(height: 6),
                 const Text(
-                  'Waiting for opponent\nto connect...',
+                  'Waiting for friend\nto join...',
                   textAlign: TextAlign.center,
                   style: TextStyle(fontSize: 8.5, color: AppColors.textMuted, fontStyle: FontStyle.italic),
                 ),
@@ -671,7 +667,12 @@ class _VsPlayerRoomScreenState extends State<VsPlayerRoomScreen>
               onTap: widget.isHost
                   ? () {
                       setState(() => _selectedVenueIdx = i);
-                      _broadcastSettings();
+                      // Update authoritative database settings document
+                      _online.updateRoomSettings(
+                        venueIdx: i,
+                        venueName: _venues[i]['name'],
+                        targetScore: _targetScore,
+                      );
                       AppAudio.playFeatureSfx(AppAssets.sfxClick);
                     }
                   : null,
@@ -723,7 +724,12 @@ class _VsPlayerRoomScreenState extends State<VsPlayerRoomScreen>
                     onTap: widget.isHost
                         ? () {
                             setState(() => _targetScore = pts);
-                            _broadcastSettings();
+                            // Update authoritative database settings document
+                            _online.updateRoomSettings(
+                              venueIdx: _selectedVenueIdx,
+                              venueName: _venues[_selectedVenueIdx]['name'],
+                              targetScore: pts,
+                            );
                             AppAudio.playFeatureSfx(AppAssets.sfxClick);
                           }
                         : null,
@@ -756,12 +762,17 @@ class _VsPlayerRoomScreenState extends State<VsPlayerRoomScreen>
 
   Widget _buildBottomActionCluster() {
     if (widget.isHost) {
-      final canStart = _lan.isConnected && _remoteReady;
+      final canStart = _online.isConnected && _remoteReady;
 
       return BouncyButton(
         onTap: canStart
             ? () {
-                _lan.sendPacket({'type': 'start_match'});
+                _online.updateRoomSettings(
+                  venueIdx: _selectedVenueIdx,
+                  venueName: _venues[_selectedVenueIdx]['name'],
+                  targetScore: _targetScore,
+                );
+                _online.sendPacket({'type': 'start_match'});
                 _startCountdown();
               }
             : () {},
@@ -783,8 +794,8 @@ class _VsPlayerRoomScreenState extends State<VsPlayerRoomScreen>
           ),
           child: Center(
             child: Text(
-              !_lan.isConnected
-                  ? 'WAITING FOR CHALLENGER TO CONNECT...'
+              !_online.isConnected
+                  ? 'WAITING FOR CHALLENGER TO JOIN...'
                   : (canStart ? 'START 1v1 MATCH' : 'WAITING FOR CHALLENGER READY...'),
               style: TextStyle(
                 fontWeight: FontWeight.w900,

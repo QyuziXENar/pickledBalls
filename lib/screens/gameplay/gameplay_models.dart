@@ -14,3 +14,5 @@ enum MatchPhase {
 enum ShotType { normal, smash, signatureBlitz, drive, lob }
 
 enum AiCourtZone { kitchen, transition, baseline }
+
+enum MatchMode { vsAi, lanPvp, onlinePvp }

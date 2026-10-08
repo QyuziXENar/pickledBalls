@@ -1,11 +1,11 @@
 // lib/services/online_multiplayer_manager.dart
 
 import 'dart:async';
-import 'dart:convert';
-import 'dart:io';
 import 'dart:math' as math;
+import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/foundation.dart';
 import '../models/game_state.dart';
+import 'firebase_multiplayer_service.dart';
 
 enum OnlineStatus {
   disconnected,
@@ -23,12 +23,9 @@ class OnlineMultiplayerManager extends ChangeNotifier {
   static final OnlineMultiplayerManager instance = OnlineMultiplayerManager._();
   OnlineMultiplayerManager._();
 
-  // ==========================================================================
-  // BACKEND SWITCH (FOR JOHNMARK ON BRANCH-2)
-  // ==========================================================================
-  /// Set to false when your groupmate's server / database is live!
-  static bool useMockBackend = true;
-  static String cloudServerUrl = 'wss://relay.paddleblitz.com/ws';
+  final FirebaseMultiplayerService _firebaseService = FirebaseMultiplayerService.instance;
+
+  static bool useMockBackend = false;
 
   OnlineStatus _status = OnlineStatus.disconnected;
   OnlineMatchMode _matchMode = OnlineMatchMode.quickMatch;
@@ -36,13 +33,21 @@ class OnlineMultiplayerManager extends ChangeNotifier {
   String _errorMessage = '';
   int _estimatedPingMs = 34;
 
-  WebSocket? _cloudSocket;
-  StreamSubscription? _socketSub;
-
+  bool _isHost = false;
   String _opponentName = 'Online Rival';
   String _opponentAthleteId = 'marcus';
   String _opponentPaddleId = 'volt_strike';
   bool _isOpponentReady = false;
+
+  // Authoritative Persistent Room Settings
+  int _roomVenueIdx = 0;
+  String _roomVenueName = 'Tournament Arena';
+  int _roomTargetScore = 11;
+
+  StreamSubscription<Map<String, dynamic>>? _roomSubscription;
+  StreamSubscription? _remotePlayerSub;
+  StreamSubscription? _ballSub;
+  StreamSubscription? _remoteActionSub;
 
   final StreamController<Map<String, dynamic>> _incomingPacketController =
       StreamController<Map<String, dynamic>>.broadcast();
@@ -57,15 +62,18 @@ class OnlineMultiplayerManager extends ChangeNotifier {
   String get errorMessage => _errorMessage;
   int get estimatedPingMs => _estimatedPingMs;
   bool get isConnected => _status == OnlineStatus.connected;
+  bool get isHost => _isHost;
   String get opponentName => _opponentName;
   String get opponentAthleteId => _opponentAthleteId;
   String get opponentPaddleId => _opponentPaddleId;
   bool get isOpponentReady => _isOpponentReady;
+
+  int get roomVenueIdx => _roomVenueIdx;
+  String get roomVenueName => _roomVenueName;
+  int get roomTargetScore => _roomTargetScore;
+
   Stream<Map<String, dynamic>> get packetStream => _incomingPacketController.stream;
 
-  // ==========================================================================
-  // 1. QUICK MATCH (GLOBAL SEARCH)
-  // ==========================================================================
   Future<void> startQuickMatch() async {
     await disconnect();
     _matchMode = OnlineMatchMode.quickMatch;
@@ -88,29 +96,53 @@ class OnlineMultiplayerManager extends ChangeNotifier {
     }
 
     try {
-      _cloudSocket = await WebSocket.connect(cloudServerUrl).timeout(
-        const Duration(seconds: 8),
-      );
-      _setupSocketListener();
+      final queueSnapshot = await _firebaseService.matchmakingQueueRef.get();
 
-      sendPacket({
-        'action': 'quick_match_queue',
-        'playerId': GameState.instance.selectedCharacter.id,
-        'level': GameState.instance.playerLevel,
-      });
+      if (queueSnapshot.exists && queueSnapshot.value != null) {
+        final queueMap = queueSnapshot.value as Map<dynamic, dynamic>;
+
+        for (final entry in queueMap.entries) {
+          final ticketKey = entry.key.toString();
+          final ticketData = entry.value;
+
+          if (ticketData is Map && ticketData['roomCode'] != null) {
+            final candidateCode = ticketData['roomCode'].toString();
+            final joined = await joinPrivateRoom(candidateCode);
+
+            if (joined) {
+              await _firebaseService.matchmakingQueueRef.child(ticketKey).remove();
+              return;
+            }
+          }
+        }
+      }
+
+      final roomCode = await createPrivateRoom();
+      if (roomCode.isNotEmpty) {
+        _status = OnlineStatus.inQueue;
+        notifyListeners();
+
+        final ticketRef = _firebaseService.matchmakingQueueRef.push();
+        await ticketRef.set({
+          'roomCode': roomCode,
+          'createdAt': ServerValue.timestamp,
+        });
+
+        try {
+          await ticketRef.onDisconnect().remove();
+        } catch (_) {}
+      }
     } catch (e) {
       _status = OnlineStatus.error;
-      _errorMessage = 'Cloud connection error: $e';
+      _errorMessage = 'Quick match error: $e';
       notifyListeners();
     }
   }
 
-  // ==========================================================================
-  // 2. PRIVATE ROOM: CREATE (4-LETTER CODE)
-  // ==========================================================================
   Future<String> createPrivateRoom() async {
     await disconnect();
     _matchMode = OnlineMatchMode.privateRoom;
+    _isHost = true;
 
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
     final rng = math.Random();
@@ -124,38 +156,58 @@ class OnlineMultiplayerManager extends ChangeNotifier {
       return _activeRoomCode;
     }
 
-    try {
-      _cloudSocket = await WebSocket.connect(cloudServerUrl);
-      _setupSocketListener();
+    final state = GameState.instance;
 
-      sendPacket({
-        'action': 'create_private_room',
-        'roomCode': _activeRoomCode,
-        'hostAthleteId': GameState.instance.selectedCharacter.id,
-      });
+    final initialRoomData = {
+      'roomCode': _activeRoomCode,
+      'status': 'waiting',
+      'createdAt': ServerValue.timestamp,
+      'venue': state.courtVenue,
+      'targetScore': state.targetScore,
+      'settings': {
+        'venueIdx': 0,
+        'venueName': state.courtVenue,
+        'targetScore': state.targetScore,
+      },
+      'host': {
+        'id': 'host_${state.selectedCharacter.id}',
+        'name': state.selectedCharacter.name.split(' ')[0],
+        'athleteId': state.selectedCharacter.id,
+        'paddleId': state.selectedPaddle.id,
+        'ready': false,
+      },
+      'guest': null,
+      'matchState': {
+        'scores': {'host': 0, 'guest': 0},
+      },
+    };
+
+    try {
+      await _firebaseService.createRoomRecord(_activeRoomCode, initialRoomData);
+      _subscribeToRoom(_activeRoomCode);
       return _activeRoomCode;
     } catch (e) {
       _status = OnlineStatus.error;
-      _errorMessage = 'Could not create room: $e';
+      _errorMessage = 'Failed to create room: $e';
       notifyListeners();
       return '';
     }
   }
 
-  // ==========================================================================
-  // 3. PRIVATE ROOM: JOIN WITH CODE
-  // ==========================================================================
   Future<bool> joinPrivateRoom(String roomCode) async {
     await disconnect();
     final cleanCode = roomCode.trim().toUpperCase();
+
     if (cleanCode.length != 4) {
-      _errorMessage = 'Code must be 4 characters';
+      _errorMessage = 'Code must be exactly 4 letters';
+      _status = OnlineStatus.error;
       notifyListeners();
       return false;
     }
 
     _matchMode = OnlineMatchMode.privateRoom;
     _activeRoomCode = cleanCode;
+    _isHost = false;
     _status = OnlineStatus.connecting;
     _errorMessage = '';
     notifyListeners();
@@ -172,71 +224,171 @@ class OnlineMultiplayerManager extends ChangeNotifier {
       return true;
     }
 
-    try {
-      _cloudSocket = await WebSocket.connect(cloudServerUrl);
-      _setupSocketListener();
+    final state = GameState.instance;
 
-      sendPacket({
-        'action': 'join_private_room',
-        'roomCode': _activeRoomCode,
-        'guestAthleteId': GameState.instance.selectedCharacter.id,
-      });
+    final guestData = {
+      'id': 'guest_${state.selectedCharacter.id}',
+      'name': state.selectedCharacter.name.split(' ')[0],
+      'athleteId': state.selectedCharacter.id,
+      'paddleId': state.selectedPaddle.id,
+      'ready': false,
+    };
+
+    try {
+      final success = await _firebaseService.joinRoomRecord(_activeRoomCode, guestData);
+
+      if (!success) {
+        _status = OnlineStatus.error;
+        _errorMessage = 'Room not found or already full.';
+        notifyListeners();
+        return false;
+      }
+
+      _subscribeToRoom(_activeRoomCode);
       return true;
     } catch (e) {
       _status = OnlineStatus.error;
-      _errorMessage = 'Connection failed: $e';
+      _errorMessage = 'Failed to join: $e';
       notifyListeners();
       return false;
     }
   }
 
-  // ==========================================================================
-  // 4. REAL-TIME GAMEPLAY PACKET PIPELINE
-  // ==========================================================================
-  void _setupSocketListener() {
-    _socketSub = _cloudSocket?.listen(
-      (data) {
-        try {
-          final Map<String, dynamic> packet = jsonDecode(data.toString());
-
-          if (packet['type'] == 'match_found' || packet['type'] == 'peer_joined') {
-            _opponentName = packet['opponentName'] ?? 'Rival Player';
-            _opponentAthleteId = packet['athleteId'] ?? 'aria';
-            _opponentPaddleId = packet['paddleId'] ?? 'volt_strike';
-            _status = OnlineStatus.connected;
-            notifyListeners();
-          } else if (packet['type'] == 'opponent_ready') {
-            _isOpponentReady = packet['isReady'] == true;
-            notifyListeners();
-          }
-
-          _incomingPacketController.add(packet);
-        } catch (e) {
-          debugPrint('Online packet error: $e');
-        }
-      },
-      onDone: () => _handleDisconnected(),
-      onError: (err) => _handleError(err.toString()),
-      cancelOnError: true,
-    );
+  Future<void> updateRoomSettings({
+    required int venueIdx,
+    required String venueName,
+    required int targetScore,
+  }) async {
+    if (_activeRoomCode.isEmpty) return;
+    _roomVenueIdx = venueIdx;
+    _roomVenueName = venueName;
+    _roomTargetScore = targetScore;
+    try {
+      await _firebaseService.updateRoomSettings(_activeRoomCode, {
+        'venueIdx': venueIdx,
+        'venueName': venueName,
+        'targetScore': targetScore,
+      });
+    } catch (e) {
+      debugPrint('[RTDB] Failed to update room settings: $e');
+    }
   }
 
-  void sendPacket(Map<String, dynamic> data) {
-    if (_cloudSocket != null && _cloudSocket!.readyState == WebSocket.open) {
-      try {
-        _cloudSocket!.add(jsonEncode(data));
-      } catch (e) {
-        debugPrint('Error sending online packet: $e');
+  // ==========================================================================
+  // DEDICATED CHANNEL SUBSCRIPTION LOGIC (ZERO CLOBBERING)
+  // ==========================================================================
+  void _subscribeToRoom(String roomCode) {
+    _roomSubscription?.cancel();
+    _roomSubscription = _firebaseService.listenToRoom(roomCode).listen(
+      (roomData) {
+        if (!roomData['exists'] && _status == OnlineStatus.connected) {
+          _handlePeerDisconnected('Match closed by host.');
+          return;
+        }
+
+        // Authoritative Room Settings Sync from database
+        if (roomData['settings'] != null) {
+          final settings = roomData['settings'] as Map<String, dynamic>;
+          _roomVenueIdx = (settings['venueIdx'] as num?)?.toInt() ?? _roomVenueIdx;
+          _roomVenueName = (settings['venueName'] as String?) ?? _roomVenueName;
+          _roomTargetScore = (settings['targetScore'] as num?)?.toInt() ?? _roomTargetScore;
+        }
+
+        if (_isHost) {
+          if (roomData['guest'] != null) {
+            final guest = roomData['guest'] as Map<String, dynamic>;
+            _opponentName = guest['name'] ?? 'Challenger';
+            _opponentAthleteId = guest['athleteId'] ?? 'marcus';
+            _opponentPaddleId = guest['paddleId'] ?? 'volt_strike';
+            _isOpponentReady = guest['ready'] == true;
+
+            if (_status != OnlineStatus.connected) {
+              _status = OnlineStatus.connected;
+            }
+          } else {
+            _isOpponentReady = false;
+            if (_status == OnlineStatus.connected) {
+              _status = OnlineStatus.roomCreated;
+            }
+          }
+        } else {
+          if (roomData['host'] != null) {
+            final host = roomData['host'] as Map<String, dynamic>;
+            _opponentName = host['name'] ?? 'Host';
+            _opponentAthleteId = host['athleteId'] ?? 'aria';
+            _opponentPaddleId = host['paddleId'] ?? 'volt_strike';
+            _isOpponentReady = host['ready'] == true;
+
+            if (_status != OnlineStatus.connected) {
+              _status = OnlineStatus.connected;
+            }
+          }
+        }
+
+        notifyListeners();
+      },
+      onError: (err) {
+        _status = OnlineStatus.error;
+        _errorMessage = 'Room synchronization error: $err';
+        notifyListeners();
+      },
+    );
+
+    // Bind real-time isolated telemetry streams
+    final remoteRole = _isHost ? 'guest' : 'host';
+
+    _remotePlayerSub?.cancel();
+    _remotePlayerSub = _firebaseService.listenToPlayerTelemetry(roomCode, remoteRole).listen((data) {
+      if (data.isNotEmpty) {
+        _incomingPacketController.add(data);
       }
-    } else if (useMockBackend) {
-      // In sandbox mode, process local game loop packets
+    });
+
+    if (!_isHost) {
+      _ballSub?.cancel();
+      _ballSub = _firebaseService.listenToBallTelemetry(roomCode).listen((data) {
+        if (data.isNotEmpty) {
+          _incomingPacketController.add(data);
+        }
+      });
+    }
+
+    _remoteActionSub?.cancel();
+    _remoteActionSub = _firebaseService.listenToGameAction(roomCode, remoteRole).listen((data) {
+      if (data.isNotEmpty) {
+        _incomingPacketController.add(data);
+      }
+    });
+  }
+
+  // ==========================================================================
+  // DISPATCH OVER DEDICATED CHANNELS
+  // ==========================================================================
+  void sendPacket(Map<String, dynamic> data) {
+    if (_activeRoomCode.isEmpty) return;
+
+    if (useMockBackend) {
       _processMockSandboxPacket(data);
+      return;
+    }
+
+    final role = _isHost ? 'host' : 'guest';
+    final type = data['type'];
+
+    if (type == 'pos') {
+      _firebaseService.updatePlayerTelemetry(_activeRoomCode, role, data);
+    } else if (type == 'ball_sync') {
+      if (_isHost) {
+        _firebaseService.updateBallTelemetry(_activeRoomCode, data);
+      }
+    } else {
+      // Actions: serve_toss, serve_strike, ball_hit, point_resolved, chat, challenger_ready, start_match
+      _firebaseService.sendGameAction(_activeRoomCode, role, data);
     }
   }
 
   void _processMockSandboxPacket(Map<String, dynamic> packet) {
     if (packet['type'] == 'chat') {
-      // Rival responds with friendly sportsmanship chat after 2 seconds
       _mockRivalChatTimer?.cancel();
       _mockRivalChatTimer = Timer(const Duration(milliseconds: 1800), () {
         _incomingPacketController.add({
@@ -248,7 +400,6 @@ class OnlineMultiplayerManager extends ChangeNotifier {
   }
 
   void _scheduleMockRivalResponses() {
-    // Intermittent ping fluctuation simulation (28ms - 42ms)
     Timer.periodic(const Duration(seconds: 4), (t) {
       if (_status != OnlineStatus.connected) {
         t.cancel();
@@ -260,41 +411,48 @@ class OnlineMultiplayerManager extends ChangeNotifier {
   }
 
   void toggleReadyState(bool isReady) {
-    sendPacket({
-      'type': 'player_ready',
+    if (_activeRoomCode.isEmpty) return;
+    final role = _isHost ? 'host' : 'guest';
+    _firebaseService.sendGameAction(_activeRoomCode, role, {
+      'type': 'challenger_ready',
       'isReady': isReady,
-      'roomCode': _activeRoomCode,
     });
   }
 
-  void _handleDisconnected() {
+  void _handlePeerDisconnected(String message) {
     _status = OnlineStatus.disconnected;
-    _socketSub?.cancel();
-    _cloudSocket = null;
-    notifyListeners();
-  }
-
-  void _handleError(String error) {
-    _status = OnlineStatus.error;
-    _errorMessage = error;
+    _errorMessage = message;
+    _roomSubscription?.cancel();
+    _remotePlayerSub?.cancel();
+    _ballSub?.cancel();
+    _remoteActionSub?.cancel();
     notifyListeners();
   }
 
   Future<void> disconnect() async {
     _mockMatchmakingTimer?.cancel();
     _mockRivalChatTimer?.cancel();
-    await _socketSub?.cancel();
-    _socketSub = null;
 
-    if (_cloudSocket != null) {
-      await _cloudSocket!.close();
-      _cloudSocket = null;
+    await _roomSubscription?.cancel();
+    _roomSubscription = null;
+    await _remotePlayerSub?.cancel();
+    _remotePlayerSub = null;
+    await _ballSub?.cancel();
+    _ballSub = null;
+    await _remoteActionSub?.cancel();
+    _remoteActionSub = null;
+
+    if (_isHost && _activeRoomCode.isNotEmpty && !useMockBackend) {
+      await _firebaseService.closeRoom(_activeRoomCode);
     }
 
     _status = OnlineStatus.disconnected;
     _activeRoomCode = '';
     _errorMessage = '';
     _isOpponentReady = false;
+    _roomVenueIdx = 0;
+    _roomVenueName = 'Tournament Arena';
+    _roomTargetScore = 11;
     notifyListeners();
   }
 

@@ -1,15 +1,13 @@
 // lib/screens/multiplayer/vs_online_lobby_screen.dart
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import '../../core/constants/app_assets.dart';
 import '../../core/constants/app_colors.dart';
-import '../../models/game_state.dart';
 import '../../services/online_multiplayer_manager.dart';
 import '../../widgets/ambient_background.dart';
 import '../../widgets/asset_helpers.dart';
 import '../../widgets/game_components.dart';
-import '../gameplay/gameplay_screen.dart';
+import 'vs_online_room_screen.dart';
 
 class VsOnlineLobbyScreen extends StatefulWidget {
   const VsOnlineLobbyScreen({super.key});
@@ -23,9 +21,10 @@ class _VsOnlineLobbyScreenState extends State<VsOnlineLobbyScreen>
   final OnlineMultiplayerManager _online = OnlineMultiplayerManager.instance;
   final TextEditingController _joinCodeController = TextEditingController();
 
-  int _selectedTab = 0; // 0 = Quick Match, 1 = Private Room
+  int _selectedTab = 1; // Default to Private Room for duel matchmaking
   late AnimationController _radarController;
-  bool _isLocalReady = false;
+  bool _isCreatingAction = false;
+  bool _isJoiningAction = false;
 
   @override
   void initState() {
@@ -46,21 +45,64 @@ class _VsOnlineLobbyScreenState extends State<VsOnlineLobbyScreen>
   }
 
   void _onOnlineStateChanged() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+
+    // Quick match transition if match is found
+    if (_selectedTab == 0 && _online.isConnected) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => VsOnlineRoomScreen(isHost: _online.isHost),
+        ),
+      );
+    } else {
+      setState(() {});
+    }
   }
 
-  void _launchMatch() {
-    AppAudio.play(context, AppAssets.musicBattleStart, 'Match Starting');
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(builder: (_) => const CourtGameplayScreen()),
-    );
+  Future<void> _handleCreatePrivateRoom() async {
+    setState(() => _isCreatingAction = true);
+    AppAudio.playFeatureSfx(AppAssets.sfxClick);
+
+    final roomCode = await _online.createPrivateRoom();
+
+    if (!mounted) return;
+    setState(() => _isCreatingAction = false);
+
+    if (roomCode.isNotEmpty) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => const VsOnlineRoomScreen(isHost: true),
+        ),
+      );
+    }
+  }
+
+  Future<void> _handleJoinPrivateRoom() async {
+    final code = _joinCodeController.text.trim().toUpperCase();
+    if (code.length != 4) return;
+
+    setState(() => _isJoiningAction = true);
+    AppAudio.playFeatureSfx(AppAssets.sfxClick);
+
+    final success = await _online.joinPrivateRoom(code);
+
+    if (!mounted) return;
+    setState(() => _isJoiningAction = false);
+
+    if (success) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => const VsOnlineRoomScreen(isHost: false),
+        ),
+      );
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final state = GameState.instance;
-
     return Scaffold(
       backgroundColor: AppColors.darkBg,
       body: AmbientCourtBackground(
@@ -104,7 +146,6 @@ class _VsOnlineLobbyScreenState extends State<VsOnlineLobbyScreen>
                       ],
                     ),
                     const Spacer(),
-                    // Estimated Ping Badge
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                       decoration: BoxDecoration(
@@ -157,9 +198,7 @@ class _VsOnlineLobbyScreenState extends State<VsOnlineLobbyScreen>
                   child: Center(
                     child: ConstrainedBox(
                       constraints: const BoxConstraints(maxWidth: 420),
-                      child: _online.isConnected
-                          ? _buildConnectedRoomView(state)
-                          : (_selectedTab == 0 ? _buildQuickMatchView() : _buildPrivateRoomView(state)),
+                      child: _selectedTab == 0 ? _buildQuickMatchView() : _buildPrivateRoomView(),
                     ),
                   ),
                 ),
@@ -209,7 +248,6 @@ class _VsOnlineLobbyScreenState extends State<VsOnlineLobbyScreen>
     );
   }
 
-  // Quick Match View
   Widget _buildQuickMatchView() {
     final isSearching = _online.status == OnlineStatus.inQueue;
 
@@ -305,8 +343,7 @@ class _VsOnlineLobbyScreenState extends State<VsOnlineLobbyScreen>
     );
   }
 
-  // Private Room View
-  Widget _buildPrivateRoomView(GameState state) {
+  Widget _buildPrivateRoomView() {
     return Column(
       children: [
         // Create Room Card
@@ -323,60 +360,49 @@ class _VsOnlineLobbyScreenState extends State<VsOnlineLobbyScreen>
               const Text('CREATE PRIVATE ARENA', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900, color: Colors.white)),
               const SizedBox(height: 4),
               const Text('Host a private room and share your 4-letter code with a friend.', style: TextStyle(fontSize: 9.5, color: AppColors.textMuted)),
-              const SizedBox(height: 12),
-              if (_online.status == OnlineStatus.roomCreated) ...[
-                Container(
-                  padding: const EdgeInsets.all(12),
+              const SizedBox(height: 14),
+
+              BouncyButton(
+                onTap: _isCreatingAction ? () {} : _handleCreatePrivateRoom,
+                child: Container(
+                  width: double.infinity,
+                  height: 46,
                   decoration: BoxDecoration(
-                    color: Colors.black45,
+                    gradient: AppColors.lanHostGradient,
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: AppColors.opticYellow),
+                  ),
+                  child: Center(
+                    child: _isCreatingAction
+                        ? const Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black)),
+                              SizedBox(width: 8),
+                              Text('CREATING ROOM...', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900, color: Colors.black)),
+                            ],
+                          )
+                        : const Text('CREATE ROOM CODE', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w900, color: Colors.black)),
+                  ),
+                ),
+              ),
+
+              if (_online.errorMessage.isNotEmpty && _online.isHost) ...[
+                const SizedBox(height: 10),
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.red.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.redAccent),
                   ),
                   child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text('ROOM CODE', style: TextStyle(fontSize: 8.5, fontWeight: FontWeight.bold, color: AppColors.textMuted)),
-                          Text(
-                            _online.activeRoomCode,
-                            style: const TextStyle(fontFamily: 'monospace', fontSize: 24, fontWeight: FontWeight.w900, color: AppColors.opticYellow, letterSpacing: 4.0),
-                          ),
-                        ],
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.copy_rounded, color: Colors.white70),
-                        onPressed: () {
-                          Clipboard.setData(ClipboardData(text: _online.activeRoomCode));
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('📋 Room code copied!'), duration: Duration(seconds: 1)),
-                          );
-                        },
+                      const Icon(Icons.error_outline_rounded, color: Colors.redAccent, size: 16),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(_online.errorMessage, style: const TextStyle(fontSize: 9.5, color: Colors.redAccent)),
                       ),
                     ],
-                  ),
-                ),
-                const SizedBox(height: 8),
-                const Center(
-                  child: Text('Waiting for friend to enter code...', style: TextStyle(fontSize: 9.5, color: AppColors.textMuted, fontStyle: FontStyle.italic)),
-                ),
-              ] else ...[
-                BouncyButton(
-                  onTap: () {
-                    _online.createPrivateRoom();
-                    AppAudio.playFeatureSfx(AppAssets.sfxClick);
-                  },
-                  child: Container(
-                    width: double.infinity,
-                    height: 46,
-                    decoration: BoxDecoration(
-                      gradient: AppColors.lanHostGradient,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: const Center(
-                      child: Text('CREATE ROOM CODE', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w900, color: Colors.black)),
-                    ),
                   ),
                 ),
               ],
@@ -417,10 +443,7 @@ class _VsOnlineLobbyScreenState extends State<VsOnlineLobbyScreen>
               ),
               const SizedBox(height: 10),
               BouncyButton(
-                onTap: () {
-                  _online.joinPrivateRoom(_joinCodeController.text.trim());
-                  AppAudio.playFeatureSfx(AppAssets.sfxClick);
-                },
+                onTap: _isJoiningAction ? () {} : _handleJoinPrivateRoom,
                 child: Container(
                   width: double.infinity,
                   height: 46,
@@ -428,76 +451,45 @@ class _VsOnlineLobbyScreenState extends State<VsOnlineLobbyScreen>
                     color: AppColors.opticYellow,
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  child: const Center(
-                    child: Text('JOIN ROOM', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w900, color: Colors.black)),
+                  child: Center(
+                    child: _isJoiningAction
+                        ? const Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black)),
+                              SizedBox(width: 8),
+                              Text('CONNECTING...', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900, color: Colors.black)),
+                            ],
+                          )
+                        : const Text('JOIN ROOM', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w900, color: Colors.black)),
                   ),
                 ),
               ),
+
+              if (_online.errorMessage.isNotEmpty && !_online.isHost) ...[
+                const SizedBox(height: 10),
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.red.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.redAccent),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.error_outline_rounded, color: Colors.redAccent, size: 16),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(_online.errorMessage, style: const TextStyle(fontSize: 9.5, color: Colors.redAccent)),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ],
           ),
         ),
       ],
-    );
-  }
-
-  // Connected Room Match View
-  Widget _buildConnectedRoomView(GameState state) {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: const Color(0xFF0F1B26),
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: AppColors.mintAccent, width: 2.0),
-      ),
-      child: Column(
-        children: [
-          const Text('RIVAL FOUND!', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: AppColors.mintAccent, letterSpacing: 1.2)),
-          const SizedBox(height: 14),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: [
-              // You
-              Column(
-                children: [
-                  CircleAvatar(radius: 24, backgroundColor: state.selectedCharacter.bodyColor, child: Text(state.selectedCharacter.name[0], style: const TextStyle(fontWeight: FontWeight.w900, color: Colors.white))),
-                  const SizedBox(height: 6),
-                  const Text('YOU', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Colors.white)),
-                  Text(state.selectedCharacter.name.split(' ')[0], style: const TextStyle(fontSize: 9, color: AppColors.textMuted)),
-                ],
-              ),
-              const Text('VS', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: AppColors.opticYellow)),
-              // Opponent
-              Column(
-                children: [
-                  CircleAvatar(radius: 24, backgroundColor: const Color(0xFFE63946), child: Text(_online.opponentName[0], style: const TextStyle(fontWeight: FontWeight.w900, color: Colors.white))),
-                  const SizedBox(height: 6),
-                  Text(_online.opponentName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Colors.white)),
-                  Text(_online.opponentAthleteId.toUpperCase(), style: const TextStyle(fontSize: 9, color: AppColors.textMuted)),
-                ],
-              ),
-            ],
-          ),
-          const SizedBox(height: 20),
-          BouncyButton(
-            onTap: () {
-              setState(() => _isLocalReady = true);
-              _online.toggleReadyState(true);
-              _launchMatch();
-            },
-            child: Container(
-              width: double.infinity,
-              height: 50,
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(colors: [Color(0xFF00E676), Color(0xFF00C853)]),
-                borderRadius: BorderRadius.circular(14),
-              ),
-              child: const Center(
-                child: Text('READY TO SERVE (ENTER MATCH)', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900, color: Colors.black)),
-              ),
-            ),
-          ),
-        ],
-      ),
     );
   }
 }
