@@ -4,10 +4,9 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../core/constants/app_colors.dart';
+import '../services/orientation_service.dart';
 
-// ============================================================================
-// ENUMS & CONFIGURATIONS
-// ============================================================================
+export '../services/orientation_service.dart' show AppOrientationMode;
 
 enum AIDifficulty {
   rookie('Rookie (2.5)', 'Casual play, slow returns', 0.8),
@@ -22,9 +21,6 @@ enum AIDifficulty {
 
 enum PaddleStatType { power, control, spin, agility }
 
-// ============================================================================
-// CAMPAIGN STAGE MODEL (100% 2.0 UI Compatibility)
-// ============================================================================
 class CampaignStage {
   final int stageNumber;
   final String title;
@@ -95,9 +91,6 @@ const List<CampaignStage> kCampaignStages = [
   ),
 ];
 
-// ============================================================================
-// CHARACTER MODEL (Re-tuned Grounded Athletic Movement Speeds)
-// ============================================================================
 class CharacterModel {
   final String id;
   final String name;
@@ -129,7 +122,6 @@ class CharacterModel {
 }
 
 const List<CharacterModel> kCharacters = [
-  // Aria Vance (Speedster) - Re-tuned to realistic grounded movement
   CharacterModel(
     id: 'aria',
     name: 'Aria Vance',
@@ -144,8 +136,6 @@ const List<CharacterModel> kCharacters = [
     abilityName: 'Sonic Drive',
     abilityDesc: 'Supersonic flat missile with near-instant travel time',
   ),
-
-  // Marcus Stone (Powerhouse)
   CharacterModel(
     id: 'marcus',
     name: 'Marcus Stone',
@@ -160,8 +150,6 @@ const List<CharacterModel> kCharacters = [
     abilityName: 'Meteor Spike',
     abilityDesc: 'Flaming heavy spike that crushes through defense',
   ),
-
-  // Elena Cruz (Tactician)
   CharacterModel(
     id: 'elena',
     name: 'Elena Cruz',
@@ -176,8 +164,6 @@ const List<CharacterModel> kCharacters = [
     abilityName: 'Vortex Curve',
     abilityDesc: 'Aerodynamic Magnus slice that sharply curves in air',
   ),
-
-  // Jax Cooper (All-Rounder)
   CharacterModel(
     id: 'jax',
     name: 'Jax Cooper',
@@ -194,9 +180,6 @@ const List<CharacterModel> kCharacters = [
   ),
 ];
 
-// ============================================================================
-// PADDLE MODEL (Streamlined 4 + 2 Prototypes, 100% 2.0 Stat Compatibility)
-// ============================================================================
 class PaddleModel {
   final String id;
   final String name;
@@ -205,7 +188,6 @@ class PaddleModel {
   final Color accentColor;
   final String skinPattern;
 
-  // 2.0 Legacy Stat Fields (Retained so all existing stat rows/meters compile)
   final int statSpin;
   final int statSwing;
   final int statAgility;
@@ -241,19 +223,16 @@ class PaddleModel {
     this.isPrototype = false,
   });
 
-  // 3.0 RPG Base Stat Aliases
   int get basePower => statPower;
   int get baseControl => statAccuracy;
   int get baseSpin => statSpin;
   int get baseAgility => statAgility;
 
-  // 2.0 Multipliers
   double get power => 0.70 + (statPower * 0.015);
   double get control => 0.70 + (statAccuracy * 0.015);
   double get spin => 0.65 + (statSpin * 0.018);
   double get agilityBonus => statAgility * 0.012;
 
-  // 3.0 Dynamic Multipliers (Base Stat + Allocated UP Bonus)
   double computePower(int bonus) => 0.70 + ((basePower + bonus) * 0.018);
   double computeControl(int bonus) => 0.70 + ((baseControl + bonus) * 0.016);
   double computeSpin(int bonus) => 0.65 + ((baseSpin + bonus) * 0.020);
@@ -261,7 +240,6 @@ class PaddleModel {
 }
 
 const List<PaddleModel> kPaddles = [
-  // 1. Starter (Level 1 Unlock)
   PaddleModel(
     id: 'volt_strike',
     name: 'VoltStrike Carbon',
@@ -281,8 +259,6 @@ const List<PaddleModel> kPaddles = [
     cardsNeeded: 25,
     unlockLevel: 1,
   ),
-
-  // 2. Titan Carbon (Level 3 Unlock)
   PaddleModel(
     id: 'titan_carbon',
     name: 'Titan Weave 16mm',
@@ -302,8 +278,6 @@ const List<PaddleModel> kPaddles = [
     cardsNeeded: 30,
     unlockLevel: 3,
   ),
-
-  // 3. Cyber Shatter (Level 6 Unlock)
   PaddleModel(
     id: 'cyber_shatter',
     name: 'Cyber Shatter Pro',
@@ -323,8 +297,6 @@ const List<PaddleModel> kPaddles = [
     cardsNeeded: 20,
     unlockLevel: 6,
   ),
-
-  // 4. Grand Slam Starburst (Level 10 Unlock)
   PaddleModel(
     id: 'pro_starburst',
     name: 'Grand Slam Starburst',
@@ -344,8 +316,6 @@ const List<PaddleModel> kPaddles = [
     cardsNeeded: 45,
     unlockLevel: 10,
   ),
-
-  // 5. Mystery Prototype Alpha (Locked, Coming Soon in v3.1)
   PaddleModel(
     id: 'classified_alpha',
     name: 'AeroVortex X-1',
@@ -366,8 +336,6 @@ const List<PaddleModel> kPaddles = [
     unlockLevel: 999,
     isPrototype: true,
   ),
-
-  // 6. Mystery Prototype Beta (Locked, Coming Soon in v3.1)
   PaddleModel(
     id: 'classified_beta',
     name: 'Quantum Core 00',
@@ -390,9 +358,6 @@ const List<PaddleModel> kPaddles = [
   ),
 ];
 
-// ============================================================================
-// PADDLE STAT ALLOCATION RECORD
-// ============================================================================
 class PaddleStatAllocation {
   int power;
   int control;
@@ -425,14 +390,10 @@ class PaddleStatAllocation {
   }
 }
 
-// ============================================================================
-// GAME STATE SINGLETON (Tri-Currency Wallets & RPG Progression)
-// ============================================================================
 class GameState extends ChangeNotifier {
   static final GameState instance = GameState._();
   GameState._();
 
-  // Storage Persistence Keys
   static const String _kLevel = 'pb_v3_player_level';
   static const String _kXp = 'pb_v3_player_xp';
   static const String _kNextXp = 'pb_v3_xp_to_next';
@@ -451,13 +412,13 @@ class GameState extends ChangeNotifier {
   static const String _kVenue = 'pb_v3_court_venue';
   static const String _kTargetScore = 'pb_v3_target_score';
   static const String _kPace = 'pb_v3_game_pace';
+  static const String _kOrientation = 'pb_v3_orientation_mode';
+  static const String _kUiScale = 'pb_v3_ui_scale';
 
-  // Tri-Currency Wallets
   int _goldCoins = 1450;
   int _diamonds = 40;
   int _upgradePoints = 3;
 
-  // Level Progression
   int _playerLevel = 1;
   int _playerXp = 0;
   int _xpToNextLevel = 100;
@@ -465,12 +426,10 @@ class GameState extends ChangeNotifier {
   int _careerMatches = 0;
   int _completedStages = 0;
 
-  // Active Selections
   CharacterModel _selectedCharacter = kCharacters[0];
   CharacterModel _opponentCharacter = kCharacters[3];
   PaddleModel _selectedPaddle = kPaddles[0];
 
-  // RPG Stat Point Allocations per paddle
   final Map<String, PaddleStatAllocation> _paddleAllocations = {
     'volt_strike': PaddleStatAllocation(),
     'titan_carbon': PaddleStatAllocation(),
@@ -478,7 +437,6 @@ class GameState extends ChangeNotifier {
     'pro_starburst': PaddleStatAllocation(),
   };
 
-  // Match Preferences & Configs
   AIDifficulty _difficulty = AIDifficulty.pro;
   bool _soundEnabled = true;
   bool _hapticsEnabled = true;
@@ -489,14 +447,13 @@ class GameState extends ChangeNotifier {
   bool _isCampaignMatch = false;
   int _activeCampaignStageIndex = 0;
 
-  // --------------------------------------------------------------------------
-  // GETTERS
-  // --------------------------------------------------------------------------
+  AppOrientationMode _orientationMode = AppOrientationMode.portrait;
+  double _uiScale = 1.0; // 0.80, 0.85, 0.90, 0.95, 1.00
+
   int get goldCoins => _goldCoins;
   int get diamonds => _diamonds;
   int get upgradePoints => _upgradePoints;
 
-  // Convenience aliases for existing 2.0 UI
   int get coins => _goldCoins;
   int get gems => _diamonds;
 
@@ -522,7 +479,12 @@ class GameState extends ChangeNotifier {
   bool get isCampaignMatch => _isCampaignMatch;
   int get activeCampaignStageIndex => _activeCampaignStageIndex;
 
-  // Effective Paddle Multipliers
+  AppOrientationMode get orientationMode => _orientationMode;
+  bool get isLandscapeMode => _orientationMode == AppOrientationMode.landscape;
+  bool get isPortraitMode => _orientationMode == AppOrientationMode.portrait;
+
+  double get uiScale => _uiScale;
+
   double get effectivePaddlePower {
     final bonus = _paddleAllocations[_selectedPaddle.id]?.power ?? 0;
     return _selectedPaddle.computePower(bonus);
@@ -547,9 +509,6 @@ class GameState extends ChangeNotifier {
     return _paddleAllocations.putIfAbsent(paddleId, () => PaddleStatAllocation());
   }
 
-  // --------------------------------------------------------------------------
-  // DISK PERSISTENCE (SharedPreferences)
-  // --------------------------------------------------------------------------
   Future<void> loadFromStorage() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -597,6 +556,18 @@ class GameState extends ChangeNotifier {
       _targetScore = prefs.getInt(_kTargetScore) ?? 11;
       _gamePace = prefs.getDouble(_kPace) ?? 1.0;
 
+      final savedOrientation = prefs.getString(_kOrientation);
+      if (savedOrientation != null) {
+        _orientationMode = savedOrientation == 'landscape'
+            ? AppOrientationMode.landscape
+            : AppOrientationMode.portrait;
+      } else {
+        _orientationMode = AppOrientationMode.portrait;
+      }
+      await OrientationService.applyOrientation(_orientationMode);
+
+      _uiScale = (prefs.getDouble(_kUiScale) ?? 1.0).clamp(0.80, 1.00);
+
       notifyListeners();
     } catch (e) {
       debugPrint('Error loading saved GameState: $e');
@@ -629,14 +600,29 @@ class GameState extends ChangeNotifier {
       await prefs.setString(_kVenue, _courtVenue);
       await prefs.setInt(_kTargetScore, _targetScore);
       await prefs.setDouble(_kPace, _gamePace);
+      await prefs.setString(_kOrientation, _orientationMode.name);
+      await prefs.setDouble(_kUiScale, _uiScale);
     } catch (e) {
       debugPrint('Error saving GameState to disk: $e');
     }
   }
 
-  // --------------------------------------------------------------------------
-  // TRI-CURRENCY WALLET MUTATIONS
-  // --------------------------------------------------------------------------
+  Future<void> setOrientationMode(AppOrientationMode mode) async {
+    if (_orientationMode == mode) return;
+    _orientationMode = mode;
+    await OrientationService.applyOrientation(mode);
+    notifyListeners();
+    await _saveToStorage();
+  }
+
+  Future<void> setUiScale(double scale) async {
+    final clamped = scale.clamp(0.80, 1.00);
+    if ((_uiScale - clamped).abs() < 0.001) return;
+    _uiScale = clamped;
+    notifyListeners();
+    await _saveToStorage();
+  }
+
   void addGoldCoins(int amount) {
     if (amount <= 0) return;
     _goldCoins += amount;
@@ -674,18 +660,13 @@ class GameState extends ChangeNotifier {
     _saveToStorage();
   }
 
-  // Aliases for 2.0 UI
   void addCoins(int amount) => addGoldCoins(amount);
   bool spendCoins(int amount) => spendGoldCoins(amount);
   void addGems(int amount) => addDiamonds(amount);
   bool spendGems(int amount) => spendDiamonds(amount);
 
-  // --------------------------------------------------------------------------
-  // MANUAL STAT ALLOCATION SYSTEM
-  // --------------------------------------------------------------------------
   static const int maxAllocatedPerStat = 10;
 
-  /// String-based allocation method (Power, Control, Spin, Agility)
   bool allocateUpgradePoint(String paddleId, String statKey) {
     if (_upgradePoints <= 0) return false;
 
@@ -730,7 +711,6 @@ class GameState extends ChangeNotifier {
     return false;
   }
 
-  /// Enum-based allocation method for UI calls
   bool upgradePaddleStat(String paddleId, PaddleStatType stat) {
     return allocateUpgradePoint(paddleId, stat.name);
   }
@@ -749,9 +729,6 @@ class GameState extends ChangeNotifier {
     }
   }
 
-  // --------------------------------------------------------------------------
-  // ACCOUNT LEVEL PROGRESSION (+3 UP PER LEVEL-UP)
-  // --------------------------------------------------------------------------
   void addMatchExperience({
     required bool wonMatch,
     required int rallyHits,
@@ -775,11 +752,10 @@ class GameState extends ChangeNotifier {
     _goldCoins += earnedCoins;
     _playerXp += earnedXp;
 
-    // Account Level-Up Loop: awards +3 UP per level-up
     while (_playerXp >= _xpToNextLevel) {
       _playerXp -= _xpToNextLevel;
       _playerLevel++;
-      _upgradePoints += 3; // +3 Upgrade Points awarded every level-up
+      _upgradePoints += 3;
       _xpToNextLevel = (_xpToNextLevel * 1.45).round();
     }
 
@@ -787,9 +763,6 @@ class GameState extends ChangeNotifier {
     _saveToStorage();
   }
 
-  // --------------------------------------------------------------------------
-  // SELECTION & MATCH CONFIGURATIONS
-  // --------------------------------------------------------------------------
   void startCampaignStage(int stageIndex) {
     final stage = kCampaignStages[stageIndex];
     _isCampaignMatch = true;

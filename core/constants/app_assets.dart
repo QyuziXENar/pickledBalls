@@ -1,172 +1,123 @@
 // lib/core/constants/app_assets.dart
 
-/// Enum representing the 2.5D billboard camera perspective view.
-enum SpriteView {
-  front,
-  back,
-}
+enum SpriteView { front, back }
 
-typedef CharacterView = SpriteView;
+enum SpriteAction { idle, walk, serve, hit, defend, loss }
 
-/// Enum representing the 6 distinct 4-frame animation states.
-enum SpriteAction {
-  idle,
-  walk,
-  serve,
-  hit,
-  defend,
-  loss,
-}
-
-typedef CharacterAction = SpriteAction;
-
-/// Centralized, type-safe asset catalog for Paddle Blitz 3.0.
 class AppAssets {
-  AppAssets._();
+  // ==========================================================================
+  // 1. LOGOS & FULL-SCREEN BACKGROUNDS
+  // ==========================================================================
+  static const String companyLogo = 'lib/assets/images/logos/company_logo.png';
+  static const String gameLogo = 'lib/assets/images/logos/game_logo.png';
+  static const String appIcon = gameLogo;
+
+  // Background Images
+  static const String bgArenaDiorama = 'lib/assets/images/backgrounds/arena_diorama.png';
+  static const String arenaDiorama = bgArenaDiorama;
+  static const String bgShop = 'lib/assets/images/backgrounds/shop_bg.png';
+  static const String bgPaddles = 'lib/assets/images/backgrounds/paddles_bg.png';
+  static const String bgBattle = 'lib/assets/images/backgrounds/battle_bg.png';
+  static const String bgRoster = 'lib/assets/images/backgrounds/roster_bg.png';
 
   // ==========================================================================
-  // 1. BRAND & ENGINE LOGOS (XCCR & Canzed Dual Compatibility)
+  // 2. MUSIC & INTROS (EXACT MATCH FOR YOUR MUSIC/ FOLDER)
   // ==========================================================================
-  static const String logoXccr = 'lib/assets/images/logos/xccr_logo.png';
-  static const String logoCanzed = 'lib/assets/images/logos/canzed_logo.png';
-  static const String logoGame = 'lib/assets/images/logos/game_logo.png';
-
-  // ==========================================================================
-  // 2. PILLAR 7 EXHAUSTIVE SFX CATALOG (Every In-Game Event Has a Constant)
-  // ==========================================================================
-  static const String sfxFolder = 'lib/assets/sounds/sfx/';
-
-  // Serve & Fault Hooks
-  static const String sfxServeToss = 'serve_toss.mp3';
-  static const String sfxReticleLock = 'reticle_lock.mp3';
-  static const String sfxServeDrive = 'serve_drive.mp3';
-  static const String sfxServeLob = 'serve_lob.mp3';
-  static const String sfxFaultBuzzer = 'fault_buzzer.mp3';
-  static const String sfxOutOfBounds = 'out_of_bounds.mp3';
-  static const String sfxKitchenFault = 'kitchen_fault.mp3';
-
-  // Ball & Paddle Contact Foley
-  static const String sfxPaddleDrive = 'paddle_drive.mp3';
-  static const String sfxPaddleSmash = 'paddle_smash.mp3';
-  static const String sfxDinkPop = 'dink_pop.mp3';
-  static const String sfxBlitzSuper = 'blitz_super.mp3';
-  static const String sfxBallBounce = 'ball_bounce.mp3';
-  static const String sfxNetCord = 'net_cord.mp3';
-  static const String sfxPlayerDive = 'player_dive.mp3';
-  static const String sfxShoeSqueak = 'shoe_squeak.mp3';
-
-  // Atmosphere, Rallies & Match Scoring
-  static const String sfxPointCheer = 'point_cheer.mp3';
-  static const String sfxRoundLose = 'round_lose.mp3';
-  static const String sfxRallyStreak = 'rally_streak.mp3';
-  static const String sfxMatchWinner = 'match_winner.mp3';
-  static const String sfxMatchWin = sfxMatchWinner;
-  static const String sfxMatchLose = 'match_lose.mp3';
-  static const String sfxCrowdGroan = 'crowd_groan.mp3';
-  static const String sfxRoundWinner = 'round_winner.mp3';
-
-  // Menu, Pro Shop & RPG Upgrades
-  static const String sfxClick = 'click.mp3';
-  static const String sfxSwipe = 'swipe.mp3';
-  static const String sfxTabSwipe = 'tab_swipe.mp3';
-  static const String sfxCardTap = 'card_tap.mp3';
-  static const String sfxCharacterSelect = 'character_select.mp3';
-  static const String sfxPaddleEquip = 'equip.mp3';
-  static const String sfxStatUpgrade = 'stat_upgrade.mp3';
-  static const String sfxStatReset = 'stat_reset.mp3';
-  static const String sfxCrateOpen = 'crate_open.mp3';
-  static const String sfxRewardReveal = 'reward_reveal.mp3';
-  static const String sfxError = 'error.mp3';
-  static const String sfxBeep = 'beep.mp3';
+  static const String companyIntro = 'lib/assets/sounds/music/company_intro.mp3';
+  static const String battleStart = 'lib/assets/sounds/music/battle_start.mp3';
 
   // ==========================================================================
-  // 3. MUSIC & INTROS
+  // 3. SOUND EFFECTS (SFX & FOLEY)
   // ==========================================================================
-  static const String musicFolder = 'lib/assets/sounds/music/';
+  static const String sfxBallBounce = 'lib/assets/sounds/sfx/ball_bounce.mp3';
+  static const String sfxBlitzSuper = 'lib/assets/sounds/sfx/blitz_super.mp3';
+  static const String sfxClick = 'lib/assets/sounds/sfx/click.mp3';
+  static const String sfxError = 'lib/assets/sounds/sfx/error.mp3';
+  static const String sfxFaultBuzzer = 'lib/assets/sounds/sfx/fault_buzzer.mp3';
+  static const String sfxMatchLose = 'lib/assets/sounds/sfx/match_lose.mp3';
+  static const String sfxMatchWinner = 'lib/assets/sounds/sfx/match_winner.mp3';
+  static const String sfxPaddleDrive = 'lib/assets/sounds/sfx/paddle_drive.mp3';
+  static const String sfxPaddleSmash = 'lib/assets/sounds/sfx/paddle_smash.mp3';
+  static const String sfxPointCheer = 'lib/assets/sounds/sfx/point_cheer.mp3';
+  static const String sfxRoundLose = 'lib/assets/sounds/sfx/round_lose.mp3';
+  static const String sfxRoundWinner = 'lib/assets/sounds/sfx/round_winner.mp3';
+  static const String sfxSwipe = 'lib/assets/sounds/sfx/swipe.mp3';
 
-  static const String musicXccrIntro = 'xccr_intro.mp3';
-  static const String musicCanzedIntro = 'canzed_intro.mp3';
-  static const String musicClashJingle = 'clash_start_jingle.mp3';
-  static const String musicBattleStart = 'battle_start.mp3';
+  // Foley Aliases
+  static const String sfxShoeSqueak = 'lib/assets/sounds/sfx/click.mp3';
+  static const String sfxNetCord = 'lib/assets/sounds/sfx/fault_buzzer.mp3';
+  static const String sfxOutOfBounds = 'lib/assets/sounds/sfx/fault_buzzer.mp3';
+  static const String sfxDinkPop = 'lib/assets/sounds/sfx/paddle_drive.mp3';
+  static const String sfxPlayerDive = 'lib/assets/sounds/sfx/swipe.mp3';
+  static const String sfxReticleLock = 'lib/assets/sounds/sfx/click.mp3';
+  static const String sfxServeToss = 'lib/assets/sounds/sfx/swipe.mp3';
+  static const String sfxServeDrive = 'lib/assets/sounds/sfx/paddle_drive.mp3';
+  static const String sfxServeLob = 'lib/assets/sounds/sfx/paddle_drive.mp3';
+  static const String sfxRallyStreak = 'lib/assets/sounds/sfx/point_cheer.mp3';
+  static const String sfxKitchenFault = 'lib/assets/sounds/sfx/fault_buzzer.mp3';
+  static const String sfxCardTap = 'lib/assets/sounds/sfx/click.mp3';
+  static const String sfxPaddleEquip = 'lib/assets/sounds/sfx/click.mp3';
+  static const String sfxTabSwipe = 'lib/assets/sounds/sfx/swipe.mp3';
+  static const String sfxCharacterSelect = 'lib/assets/sounds/sfx/click.mp3';
+
+  // Backward-Compatible Aliases
+  static const String logoCanzed = companyLogo;
+  static const String logoXccr = companyLogo;
+  static const String logoGame = gameLogo;
+  static const String musicBattleStart = battleStart;
+  static const String sfxBattleStart = battleStart;
+  static const String musicCanzedIntro = companyIntro;
+  static const String musicXccrIntro = companyIntro;
+  static const String sfxCanzedIntro = companyIntro;
+  static const String sfxXccrIntro = companyIntro;
 
   // ==========================================================================
-  // 4. ATHLETES & 192-FRAME SPRITE TAXONOMY
+  // 4. 192-FRAME SPRITE TAXONOMY RESOLVER
   // ==========================================================================
-  static const String athleteAria = 'aria';
-  static const String athleteMarcus = 'marcus';
-  static const String athleteElena = 'elena';
-  static const String athleteJax = 'jax';
-
-  static const List<String> allAthletes = [
-    athleteAria,
-    athleteMarcus,
-    athleteElena,
-    athleteJax,
-  ];
-
-  static const String spriteBasePath = 'lib/assets/images/characters';
-
-  /// Primary helper: looks up any frame path using strings or enums.
-  /// Format: `lib/assets/images/characters/{char_id}/{char_id}_{view}_{action}_{frame}.png`
   static String getCharacterFrame(
     String charId,
-    dynamic view,
-    dynamic action,
-    dynamic frameNumber,
+    SpriteView view,
+    SpriteAction action,
+    int frameIndex,
   ) {
-    final viewStr = view is SpriteView ? view.name : view.toString().toLowerCase();
-    final actionStr = action is SpriteAction ? action.name : action.toString().toLowerCase();
+    final cleanId = charId.toLowerCase();
+    final viewStr = view == SpriteView.front ? 'front' : 'back';
+    final actionStr = action.name;
+    final frameStr = frameIndex.toString().padLeft(2, '0');
 
-    final int frameInt = frameNumber is int
-        ? frameNumber
-        : int.tryParse(frameNumber.toString()) ?? 1;
-    final frameStr = frameInt.clamp(1, 4).toString().padLeft(2, '0');
-
-    return '$spriteBasePath/$charId/${charId}_${viewStr}_${actionStr}_$frameStr.png';
+    return 'lib/assets/images/characters/$cleanId/${cleanId}_${viewStr}_${actionStr}_$frameStr.png';
   }
 
-  static String characterSprite({
-    required String characterId,
-    required dynamic view,
-    required dynamic action,
-    required dynamic frame,
-  }) {
-    return getCharacterFrame(characterId, view, action, frame);
-  }
-
-  static String playerFrame(String charId, SpriteAction action, int frame) {
-    return getCharacterFrame(charId, SpriteView.back, action, frame);
-  }
-
-  static String opponentFrame(String charId, SpriteAction action, int frame) {
-    return getCharacterFrame(charId, SpriteView.front, action, frame);
-  }
-
-  /// Asset Bridge Helper: Maps to placeholder PNGs if sliced frames are not yet on disk
   static String? getLegacyPlaceholderKey(String charId, SpriteAction action, int frameIndex) {
-    String legacyId = charId.toUpperCase();
-    if (charId == 'aria') legacyId = 'FEMALE';
-    if (charId == 'marcus') legacyId = 'MALE';
+    String spriteName = charId.toUpperCase();
+    if (charId == 'aria') spriteName = 'FEMALE';
+    if (charId == 'marcus') spriteName = 'MALE';
 
-    if (legacyId != 'FEMALE' && legacyId != 'MALE') return null;
-
-    String legacyFrame = 'frame_0_ready';
+    String frameName = 'frame_0_ready';
     if (action == SpriteAction.hit) {
-      if (frameIndex == 1) legacyFrame = 'frame_1_backswing';
-      if (frameIndex == 2) legacyFrame = 'frame_2_contact';
-      if (frameIndex >= 3) legacyFrame = 'frame_3_followthrough';
+      if (frameIndex == 1) {
+        frameName = 'frame_1_backswing';
+      } else if (frameIndex == 2) {
+        frameName = 'frame_2_contact';
+      } else {
+        frameName = 'frame_3_followthrough';
+      }
     }
-    return '${legacyFrame}_$legacyId';
+
+    return '${frameName}_$spriteName';
   }
 
-  /// Full manifest of all 192 individual frame asset paths
   static List<String> getAllSpritePaths() {
+    const characters = ['aria', 'elena', 'jax', 'marcus'];
+    const views = [SpriteView.front, SpriteView.back];
+    const actions = SpriteAction.values;
     final List<String> paths = [];
-    for (final charId in allAthletes) {
-      for (final view in SpriteView.values) {
-        for (final action in SpriteAction.values) {
-          for (int f = 1; f <= 4; f++) {
-            paths.add(getCharacterFrame(charId, view, action, f));
+
+    for (final char in characters) {
+      for (final view in views) {
+        for (final action in actions) {
+          for (int frame = 1; frame <= 4; frame++) {
+            paths.add(getCharacterFrame(char, view, action, frame));
           }
         }
       }
